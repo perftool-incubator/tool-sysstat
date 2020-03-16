@@ -1,0 +1,11 @@
+#!/bin/bash
+exec >sysstat-stop-stderrout.txt
+exec 2>&1
+
+echo "args: $@"
+echo "pwd: `/bin/pwd`"
+echo "hostname: `hostname`"
+
+while read pid; do
+    kill -s SIGTERM $pid
+done <sysstat-pids.txt

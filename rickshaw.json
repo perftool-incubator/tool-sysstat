@@ -1,0 +1,32 @@
+{
+  "tool": "sysstat",
+  "controller": {
+    "post-script": "%tool-dir%sysstat-post-process"
+  },
+  "collector": {
+    "files-from-controller": [
+        {
+            "src": "%tool-dir%/sysstat-start",
+            "dest": "/usr/bin/"
+        },
+        {
+            "src": "%tool-dir%/sysstat-stop",
+            "dest": "/usr/bin/"
+        }
+    ],
+    "blacklist": [
+        {
+            "endpoint": "rhocp",
+            "collector-types": [ "client", "server" ]
+        }
+    ],
+    "whitelist": [
+        {
+            "endpoint": "rhocp",
+            "collector-types": [ "master", "worker" ]
+        }
+    ],
+    "start": "sysstat-start",
+    "stop": "sysstat-stop"
+  }
+}
