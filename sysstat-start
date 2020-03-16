@@ -1,0 +1,54 @@
+#!/bin/bash
+exec >sysstat-start-stderrout.txt
+exec 2>&1
+
+echo "args: $@"
+echo "pwd: `/bin/pwd`"
+echo "hostname: `hostname`"
+# defaults
+collectors="mpstat"
+interval=3
+
+longopts="collectors:,interval:"
+opts=$(getopt -q -o "" --longoptions "$longopts" -n "getopt.sh" -- "$@");
+if [ $? -ne 0 ]; then
+    printf -- "\tUnrecognized option specified\n\n"
+    exit 1
+fi
+eval set -- "$opts";
+while true; do
+    case "$1" in
+        --collectors)
+            shift;
+            collectors=$1
+            echo "collectors=$collectors"
+            shift;
+            ;;
+        --interval)
+            shift;
+            interval=$1
+            echo "interval=$interval"
+            shift;
+            ;;
+        --)
+            shift;
+            break
+            ;;
+        *)
+            echo "Invalid optioni: $1"
+            exit 1
+    esac
+done
+
+/bin/rm -f sysstat-pids.txt
+for collector in `echo $collectors | sed -e 's/,/ /g'`; do
+    case "$collector" in
+        mpstat)
+            echo "Starting mpstat"
+            TZ=UTC S_TIME_FORMAT=ISO mpstat -o JSON -P ALL $interval >mpstat-stdout.txt 2>mpstat-stderr.txt &
+            mpstat_pid=$!
+            echo "$mpstat_pid" >>sysstat-pids.txt
+            echo "mpstat pid is $mpstat_pid"
+            ;;
+    esac
+done
