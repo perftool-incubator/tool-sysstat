@@ -6,10 +6,10 @@ echo "args: $@"
 echo "pwd: `/bin/pwd`"
 echo "hostname: `hostname`"
 # defaults
-collectors="mpstat"
+subtools="mpstat,sar,iostat"
 interval=3
 
-longopts="collectors:,interval:"
+longopts="subtools:,interval:"
 opts=$(getopt -q -o "" --longoptions "$longopts" -n "getopt.sh" -- "$@");
 if [ $? -ne 0 ]; then
     printf -- "\tUnrecognized option specified\n\n"
@@ -18,10 +18,10 @@ fi
 eval set -- "$opts";
 while true; do
     case "$1" in
-        --collectors)
+        --subtools)
             shift;
-            collectors=$1
-            echo "collectors=$collectors"
+            subtools=$1
+            echo "subtools=$subtools"
             shift;
             ;;
         --interval)
@@ -35,20 +35,37 @@ while true; do
             break
             ;;
         *)
-            echo "Invalid optioni: $1"
+            echo "Invalid option: $1"
             exit 1
     esac
 done
 
 /bin/rm -f sysstat-pids.txt
-for collector in `echo $collectors | sed -e 's/,/ /g'`; do
-    case "$collector" in
+for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
+    case "$subtool" in
         mpstat)
             echo "Starting mpstat"
             TZ=UTC S_TIME_FORMAT=ISO mpstat -o JSON -P ALL $interval >mpstat-stdout.txt 2>mpstat-stderr.txt &
             mpstat_pid=$!
             echo "$mpstat_pid" >>sysstat-pids.txt
             echo "mpstat pid is $mpstat_pid"
+            ;;
+        iostat)
+            echo "Starting iostat"
+            TZ=UTC S_TIME_FORMAT=ISO iostat -o JSON -d -k -x -y $interval >iostat-stdout.txt 2>iostat-stderr.txt &
+            iostat_pid=$!
+            echo "$iostat_pid" >>sysstat-pids.txt
+            echo "iostat pid is $iostat_pid"
+            ;;
+        sar)
+            echo "Starting sar"
+            TZ=UTC S_TIME_FORMAT=ISO sar -u ALL -P ALL -n ALL -B -w $interval >sar-stdout.txt 2>sar-stderr.txt &
+            sar_pid=$!
+            echo "$sar_pid" >>sysstat-pids.txt
+            echo "sar pid is $sar_pid"
+            ;;
+        *)
+            echo "Invalid subtool: $subtool"
             ;;
     esac
 done
