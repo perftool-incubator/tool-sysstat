@@ -6,7 +6,7 @@ echo "args: $@"
 echo "pwd: `/bin/pwd`"
 echo "hostname: `hostname`"
 # defaults
-subtools="mpstat,sar,iostat"
+subtools="mpstat,sar,iostat,pidstat"
 interval=3
 
 longopts="subtools:,interval:"
@@ -43,6 +43,13 @@ done
 /bin/rm -f sysstat-pids.txt
 for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
     case "$subtool" in
+        pidstat)
+            echo "Starting pidstat"
+            TZ=UTC S_TIME_FORMAT=ISO pidstat -p ALL $interval >pidstat-stdout.txt 2>pidstat-stderr.txt &
+            pidstat_pid=$!
+            echo "$pidstat_pid" >>sysstat-pids.txt
+            echo "pidstat pid is $pidstat_pid"
+            ;;
         mpstat)
             echo "Starting mpstat"
             TZ=UTC S_TIME_FORMAT=ISO mpstat -o JSON -P ALL $interval >mpstat-stdout.txt 2>mpstat-stderr.txt &
