@@ -1,0 +1,99 @@
+#!/usr/bin/perl
+## -*- mode: perl; indent-tabs-mode: t; perl-indent-level: 4 -*-
+## vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=perl
+
+use strict;
+use warnings;
+use JSON::XS;
+use Data::Dumper;
+
+my @sysstat_metrics;
+my %metric_types;
+opendir(my $dh, ".");
+for my $log_file (sort readdir($dh)) {
+    if ($log_file =~ /^sar-stdout.txt$/) {
+        my $ymd_timestamp_ms; # Epochtime in milliseconds
+        my $scan_mode = "";
+        my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
+        my $prev_hms_ms;
+        #printf "Opening %s\n", $log_file;
+        open(my $log_fh, $log_file) || die "[ERROR]could not open file " . $log_file;
+
+        while (<$log_fh>) {
+            chomp;
+            #printf "working on line: [%s]\n", $_;
+
+#Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000) 	2020-06-24 	_x86_64_	(64 CPU)
+
+#22:28:54        IFACE   rxpck/s   txpck/s    rxkB/s    txkB/s   rxcmp/s   txcmp/s  rxmcst/s   %ifutil
+#22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
+
+            if ($scan_mode eq '') {
+                if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
+                    my $ymd = $1;
+                    $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
+                    #printf "year-month-day epoch milliseconds: %d\n", $ymd_timestamp_ms;
+                } elsif ( /(\d+:\d+:\d+)\s+IFACE\s+rxpck\/s\s+txpck\/s\s+rxkB\/s\s+txkB\/s\s+rxcmp\/s\s+txcmp\/s\s+rxmcst\/s\s+%ifutil$/ ) {
+                    #printf "In scan mode net [%s]\n", $_;
+                    $scan_mode = "net"
+                }
+            } else {
+                if ($scan_mode eq "net") {
+                    #if (/(\d+:\d+:\d+)\s+(\S+)\s+(\S)\s+(\S+)\s+(\S+)\s+(\S+)\s+.*/) {
+                    if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
+                        #printf "Found net line: [%s]\n", $_;
+                        my $hour = $1;
+                        my $min = $2;
+                        my $sec = $3;
+                        my $dev = $4;
+                        my $rxpack = $5;
+                        my $txpack = $6;
+                        my $rxkB = $7;
+                        my $txkB = $8;
+                        $hms_ms = 1000 * ($hour * 60 * 60 + $min * 60 + $sec);
+                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                            # hour-minute-second is lower than last reading so one day has passed
+                            $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
+                        }
+                        #printf "iface: %s rxpkts: %f txpack: %f rxkB: %f txkB %f\n", $dev, $rxpack, $txpack, $rxkB, $txkB;
+                        for my $direction ('rx', 'tx') {
+                            my $this_type = 'L2-Gbps';
+                            my $this_name = $dev . '-' . $direction;
+                            if (! exists $metric_types{$this_type}{$this_name}) {
+                                # Once defined use this to remeber which index it uses in the @sysstat_metrics array.
+                                $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
+                                my %this_metric;
+                                my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                            'type' => $this_type, 'name-format' => '%dev%-%direction%');
+                                my %names = ('dev' => $dev, 'direction' => $direction);
+                                $this_metric{'desc'} = \%desc;
+                                $this_metric{'names'} = \%names;
+                                push(@sysstat_metrics, \%this_metric);
+                            }
+                            my $value;
+                            if ($direction eq 'rx') {
+                                $value = $rxkB / 1000000 * 8;
+                            } else {
+                                $value = $txkB / 1000000 * 8;
+                            }
+                            my %this_sample = ( 'value' => $value, 'end' => $hms_ms + $ymd_timestamp_ms);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$this_name}]{'data'}}, \%this_sample);
+                        }
+                        $prev_hms_ms = $hms_ms;
+                    } elsif ($_ eq '') {
+                        #printf "Switching scan mode back to nothing\n";
+                        $scan_mode = '';
+                    }
+                }
+            }
+        }
+        close($log_fh);
+    }
+}
+closedir $dh;
+if (scalar @sysstat_metrics > 0) {
+    my $coder = JSON::XS->new;
+    open(JSON_FH, ">metric-data.json") || die("Could not open file metric-data.json for writing\n");
+    print JSON_FH $coder->encode(\@sysstat_metrics);
+    close JSON_FH;
+}
