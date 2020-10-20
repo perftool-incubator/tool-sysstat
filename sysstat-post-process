@@ -5,18 +5,174 @@
 use strict;
 use warnings;
 use JSON::XS;
+use JSON::Validator;
 use Data::Dumper;
 
+sub get_json_file {
+    my $filename = shift;
+    my $schema_filename = shift;
+    my $coder = JSON::XS->new;
+    my $jv = JSON::Validator->new;
+    printf "opening %s\n", $filename;
+    open(FH, $filename) || die("Could not open file $filename\n");
+    my $json_text = "";
+    while ( <FH> ) {
+        $json_text .= $_;
+    }
+    close FH;
+    my $json_ref = $coder->decode($json_text) || die "Could not read JSON";
+    if (defined $schema_filename and -e $schema_filename) {
+        open(FH, $schema_filename) or die "Could not open $schema_filename";
+        my $json_text;
+        while ( <FH> ) {
+            $json_text .= $_;
+        }
+        close FH;
+        $jv->schema($json_text);
+        my @errors = $jv->validate($json_ref);
+        if (scalar @errors > 0) {
+            printf "Validation errors when reading %s with schema %s:\n" . Dumper \@errors,
+                   $filename, $schema_filename;
+        }
+    }
+    return $json_ref;
+}
+
+sub build_netdev_types {
+    my %netdev_types;
+    my $netdev_types_file = "netdev-types.txt";
+    if (-f $netdev_types_file) {
+        open(FH, $netdev_types_file) || die "Could not open $netdev_types_file";
+        while ( my $line = <FH>) {
+            chomp $line;
+            printf "line: [%s]\n", $line;
+            if ($line =~ /^(\S+)\s+\.\.\/\.\.\/devices\/(\S+)$/) {
+                printf "found %s %s\n", $1, $2;
+                $netdev_types{$1} = $2;
+            }
+        }
+        close FH;
+   }
+   return \%netdev_types;
+}
+
+sub get_netdev_type {
+    my $netdev_name = shift;
+    my $netdev_types_ref = shift;
+    printf "netdev name: %s\n", $netdev_name;
+    if (exists $$netdev_types_ref{$netdev_name}) {
+        if ($$netdev_types_ref{$netdev_name} =~ /^pci/) {
+            return "physical";
+        } elsif ($$netdev_types_ref{$netdev_name} =~ /^virtual/) {
+            return "virtual";
+        } else {
+            return "unknown";
+        }
+    }
+    return "unknown";
+}
+
+sub build_cpu_topology {
+    my @cpu_topo;
+    my $cpu_topo_path = "sys/devices/system/cpu";
+    if (-d $cpu_topo_path) {
+        opendir(my $dh, $cpu_topo_path);
+        for my $cpu_dir (grep(/^cpu\d+/, sort readdir($dh))) {
+            my $cpu_id = $cpu_dir;
+            $cpu_id =~ s/^cpu//;
+            chomp $cpu_id;
+            my $this_cpu_topo_path = $cpu_topo_path . "/" . $cpu_dir . "/topology";
+            if (-d $this_cpu_topo_path) {
+                my %topo;
+                my $file;
+                for my $this_cpu_type ('physical_package_id', 'die_id', 'core_id') {
+                    $file = $this_cpu_topo_path . "/" . $this_cpu_type;
+                    if (-e $file) {
+                        open(FH, $file) or die "Could not open $file";
+                        my $id = <FH>;
+                        close FH;
+                        chomp $id;
+                        if ($id =~ /^\d+$/) {
+                            if ($this_cpu_type eq "physical_package_id") {
+                                # Keep the naming consistent, $single_word_heirarchy_level . "_id"
+                                $topo{'package_id'} = $id;
+                            } else {
+                                $topo{$this_cpu_type} = $id;
+                            }
+                        } else {
+                            die "CPU ID for %s is not a valid number\n". $file;
+                        }
+                    } else {
+                        printf "WARNING: could not find %s\n", $file;
+                    }
+                }
+                # Getting a cpu-thread ID is not as straight forward as it is for package, die,
+                # and core.  Sysfs does not provide an actual thread id.  We must what position
+                # in the list of thread_siblings our [logical] cpu id is and use that position
+                # as the thread id.
+                $file = $cpu_topo_path . "/" . $cpu_dir . "/topology/thread_siblings_list";
+                if (-e $file) {
+                    open(FH, $file);
+                    my $list = <FH>;
+                    chomp $list;
+                    close FH;
+                    my $thread_id = 0;
+                    # We need an ordered list with no x-y ranges in it
+                    for my $range (split(/,/, $list)) {
+                        if ($range =~ /(\d+)-(\d+)/) {
+                            my $i;
+                            for ($i = $1; $i <= $2; $i++) {
+                                if ($i == $cpu_id) {
+                                    $topo{'thread_id'} = $thread_id;
+                                    last;
+                                }
+                                $thread_id++;
+                            }
+                        } else {
+                            if ($range == $cpu_id) {
+                                $topo{'thread_id'} = $thread_id;
+                                last;
+                            }
+                            $thread_id++;
+                        }
+                    }
+                } else {
+                    printf "WARNING: could not find %s\n", $file;
+                }
+                $cpu_topo[$cpu_id] = \%topo;
+            } else {
+                printf "WARNING: could not find %s\n", $this_cpu_topo_path;
+            }
+        }
+    } else {
+        printf "WARNING: could not find %s\n", $cpu_topo_path;
+    }
+    return \@cpu_topo;
+}
+
+sub get_cpu_topology {
+    my $cpu_num = shift;
+    my $cpus_ref = shift;
+    if (exists $$cpus_ref[$cpu_num]) {
+        return ($$cpus_ref[$cpu_num]{'package_id'}, $$cpus_ref[$cpu_num]{'die_id'}, $$cpus_ref[$cpu_num]{'core_id'}, $$cpus_ref[$cpu_num]{'thread_id'});
+    } else {
+        return (0, 0, $cpu_num, 0);
+    }
+}
+
+my @cpu_topology; # store a hash containing package, die, core, and thread ID per element, CPU ID = index
 my @sysstat_metrics;
 my %metric_types;
 opendir(my $dh, ".");
 for my $log_file (sort readdir($dh)) {
     if ($log_file =~ /^sar-stdout.txt$/) {
+        my $netdev_types_ref =  build_netdev_types;
+        print Dumper $netdev_types_ref;
         my $ymd_timestamp_ms; # Epochtime in milliseconds
         my $scan_mode = "";
         my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
         my $prev_hms_ms;
-        #printf "Opening %s\n", $log_file;
+        printf "opening %s\n", $log_file;
         open(my $log_fh, $log_file) || die "[ERROR]could not open file " . $log_file;
 
         while (<$log_fh>) {
@@ -32,16 +188,12 @@ for my $log_file (sort readdir($dh)) {
                 if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
                     my $ymd = $1;
                     $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
-                    #printf "year-month-day epoch milliseconds: %d\n", $ymd_timestamp_ms;
                 } elsif ( /(\d+:\d+:\d+)\s+IFACE\s+rxpck\/s\s+txpck\/s\s+rxkB\/s\s+txkB\/s\s+rxcmp\/s\s+txcmp\/s\s+rxmcst\/s\s+%ifutil$/ ) {
-                    #printf "In scan mode net [%s]\n", $_;
                     $scan_mode = "net"
                 }
             } else {
                 if ($scan_mode eq "net") {
-                    #if (/(\d+:\d+:\d+)\s+(\S+)\s+(\S)\s+(\S+)\s+(\S+)\s+(\S+)\s+.*/) {
                     if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
-                        #printf "Found net line: [%s]\n", $_;
                         my $hour = $1;
                         my $min = $2;
                         my $sec = $3;
@@ -55,7 +207,6 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
                         }
-                        #printf "iface: %s rxpkts: %f txpack: %f rxkB: %f txkB %f\n", $dev, $rxpack, $txpack, $rxkB, $txkB;
                         for my $direction ('rx', 'tx') {
                             my $this_type = 'L2-Gbps';
                             my $this_name = $dev . '-' . $direction;
@@ -64,8 +215,8 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%dev%-%direction%');
-                                my %names = ('dev' => $dev, 'direction' => $direction);
+                                            'type' => $this_type, 'name-format' => '%type%-%dev%-%direction%');
+                                my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
                                 $this_metric{'desc'} = \%desc;
                                 $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
@@ -81,13 +232,71 @@ for my $log_file (sort readdir($dh)) {
                         }
                         $prev_hms_ms = $hms_ms;
                     } elsif ($_ eq '') {
-                        #printf "Switching scan mode back to nothing\n";
                         $scan_mode = '';
                     }
                 }
             }
         }
         close($log_fh);
+    } elsif ($log_file =~ /^mpstat.json$/) {
+        my $cpu_topo_ref = build_cpu_topology;
+        my $json_ref = get_json_file($log_file);
+        my %mpstat = %$json_ref;
+        my $ymd_timestamp_ms; # Epochtime in milliseconds
+        if (exists $mpstat{'sysstat'} and exists $mpstat{'sysstat'}{'hosts'} and exists $mpstat{'sysstat'}{'hosts'}[0]) {
+            if (exists $mpstat{'sysstat'}{'hosts'}[0]{'date'}) {
+                $ymd_timestamp_ms = `date +%s%N -d $mpstat{'sysstat'}{'hosts'}[0]{'date'} -u` / 1000000;
+                if (exists $mpstat{'sysstat'}{'hosts'}[0]{'statistics'}) {
+                    my $hms_ms;
+                    my $prev_hms_ms;
+                    for my $stat (@{ $mpstat{'sysstat'}{'hosts'}[0]{'statistics'} }) {
+                        my $timestamp = $$stat{'timestamp'};
+                        if ($timestamp =~ /(\d+):(\d+):(\d+)/) {
+                            my $hour = $1;
+                            my $min = $2;
+                            my $sec = $3;
+                            $hms_ms = 1000 * ($hour * 60 * 60 + $min * 60 + $sec);
+                            if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                # hour-minute-second is lower than last reading so one day has passed
+                                $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
+                            }
+                            for my $cpu_entry (@{ $$stat{'cpu-load'} }) {
+                                if ($$cpu_entry{'cpu'} eq "all") {
+                                    next;
+                                }
+                                (my $package, my $die, my $core, my $thread) = get_cpu_topology($$cpu_entry{'cpu'}, $cpu_topo_ref);
+                                for my $cpu_type (grep(!/^cpu?/, (keys %{ $cpu_entry }))) {
+                                    my $this_type;
+                                    if ($cpu_type eq "idle" or $cpu_type eq "iowait" or $cpu_type eq "steal") {
+                                        $this_type = 'NonBusy-CPU';
+                                    } else {
+                                        $this_type = 'Busy-CPU';
+                                    }
+                                    my $this_name = $package . '-' . $die . '-' . $core . '-' . $thread . '-' . $$cpu_entry{'cpu'} . '-' . $cpu_type;
+                                    if (! exists $metric_types{$this_type}{$this_name}) {
+                                        # Once defined use this to remeber which index it uses in the @sysstat_metrics array.
+                                        # We need this index later to include the metric_data
+                                        $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
+                                        my %this_metric;
+                                        my %desc = ('class' => 'throughput', 'source' => 'mpstat',
+                                                    'type' => $this_type, 'name-format' => '%package%-%die%-%core%-%thread%-%num%-%type%');
+                                        my %names = ('package' => $package, 'die' => $die, 'core' => $core, 'thread' => $thread, 'num' => $$cpu_entry{'cpu'}, 'type' => $cpu_type);
+                                        $this_metric{'desc'} = \%desc;
+                                        $this_metric{'names'} = \%names;
+                                        push(@sysstat_metrics, \%this_metric);
+                                    }
+                                    # Convert CPU percent so "whole" CPU units are reported, aka Busy-CPU is 19.6 units and not 1916
+                                    # units (for just over 19 CPUs used, but this usage could be spread out among many more actual CPUs).
+                                    my %this_sample = ( 'value' => $$cpu_entry{$cpu_type} / 100, 'end' => $hms_ms + $ymd_timestamp_ms);
+                                    push(@{ $sysstat_metrics[$metric_types{$this_type}{$this_name}]{'data'}}, \%this_sample);
+                                }
+                            }
+                        }
+                        $prev_hms_ms = $hms_ms;
+                    }
+                }
+            }
+        }
     }
 }
 closedir $dh;

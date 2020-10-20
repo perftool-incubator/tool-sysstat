@@ -40,6 +40,20 @@ while true; do
     esac
 done
 
+# To be used by mpstat for post-processing
+if [ -e /sys/devices/system/cpu/ ]; then
+    find /sys/devices/system/cpu/ | grep topology | cpio -pdumv --quiet . 2>/dev/null
+else
+    echo "WARNING: could not find /sys/devices/system/cpu/"
+fi
+
+# To be used by sar for post-processing
+if [ -e /sys/class/net ]; then
+    /bin/ls -1 /sys/class/net | while read netdev; do
+        echo "$netdev `readlink /sys/class/net/$netdev`" >>netdev-types.txt
+    done
+fi
+
 /bin/rm -f sysstat-pids.txt
 for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
     case "$subtool" in
@@ -52,7 +66,7 @@ for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
             ;;
         mpstat)
             echo "Starting mpstat"
-            TZ=UTC S_TIME_FORMAT=ISO mpstat -o JSON -P ALL $interval >mpstat-stdout.txt 2>mpstat-stderr.txt &
+            TZ=UTC S_TIME_FORMAT=ISO mpstat -o JSON -P ALL $interval >mpstat.json 2>mpstat-stderr.txt &
             mpstat_pid=$!
             echo "$mpstat_pid" >>sysstat-pids.txt
             echo "mpstat pid is $mpstat_pid"
@@ -66,7 +80,7 @@ for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
             ;;
         sar)
             echo "Starting sar"
-            TZ=UTC S_TIME_FORMAT=ISO sar -u ALL -P ALL -n ALL -B -w $interval >sar-stdout.txt 2>sar-stderr.txt &
+            TZ=UTC S_TIME_FORMAT=ISO sar -n ALL -B -w $interval >sar-stdout.txt 2>sar-stderr.txt &
             sar_pid=$!
             echo "$sar_pid" >>sysstat-pids.txt
             echo "sar pid is $sar_pid"
