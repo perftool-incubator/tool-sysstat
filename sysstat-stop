@@ -7,7 +7,7 @@ echo "hostname: `hostname`"
 
 if [ -e sysstat-pids.txt ]; then
     while read pid; do
-        kill -s SIGTERM $pid
+        kill -s SIGINT $pid
     done <sysstat-pids.txt
 else
     echo "Could not find sysstst-pids.txt"
