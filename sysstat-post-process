@@ -13,7 +13,6 @@ sub get_json_file {
     my $schema_filename = shift;
     my $coder = JSON::XS->new;
     my $jv = JSON::Validator->new;
-    printf "opening %s\n", $filename;
     open(FH, $filename) || die("Could not open file $filename\n");
     my $json_text = "";
     while ( <FH> ) {
@@ -45,9 +44,7 @@ sub build_netdev_types {
         open(FH, $netdev_types_file) || die "Could not open $netdev_types_file";
         while ( my $line = <FH>) {
             chomp $line;
-            printf "line: [%s]\n", $line;
             if ($line =~ /^(\S+)\s+\.\.\/\.\.\/devices\/(\S+)$/) {
-                printf "found %s %s\n", $1, $2;
                 $netdev_types{$1} = $2;
             }
         }
@@ -59,7 +56,6 @@ sub build_netdev_types {
 sub get_netdev_type {
     my $netdev_name = shift;
     my $netdev_types_ref = shift;
-    printf "netdev name: %s\n", $netdev_name;
     if (exists $$netdev_types_ref{$netdev_name}) {
         if ($$netdev_types_ref{$netdev_name} =~ /^pci/) {
             return "physical";
@@ -167,17 +163,14 @@ opendir(my $dh, ".");
 for my $log_file (sort readdir($dh)) {
     if ($log_file =~ /^sar-stdout.txt$/) {
         my $netdev_types_ref =  build_netdev_types;
-        print Dumper $netdev_types_ref;
         my $ymd_timestamp_ms; # Epochtime in milliseconds
         my $scan_mode = "";
         my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
         my $prev_hms_ms;
-        printf "opening %s\n", $log_file;
         open(my $log_fh, $log_file) || die "[ERROR]could not open file " . $log_file;
 
         while (<$log_fh>) {
             chomp;
-            #printf "working on line: [%s]\n", $_;
 
 #Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000) 	2020-06-24 	_x86_64_	(64 CPU)
 
