@@ -156,6 +156,20 @@ sub get_cpu_topology {
     }
 }
 
+sub get_hms_ms {
+    my $hour = shift;
+    my $min = shift;
+    my $sec = shift;
+
+    return (1000 * ($hour * 60 * 60 + $min * 60 + $sec));
+}
+
+sub advance_ymd {
+    my $ymd_timestamp_ms = shift;
+
+    return ($ymd_timestamp_ms + (1000 * 60 * 60 * 24));
+}
+
 my @cpu_topology; # store a hash containing package, die, core, and thread ID per element, CPU ID = index
 my @sysstat_metrics;
 my %metric_types;
@@ -172,21 +186,63 @@ for my $log_file (sort readdir($dh)) {
         while (<$log_fh>) {
             chomp;
 
-#Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000) 	2020-06-24 	_x86_64_	(64 CPU)
-
-#22:28:54        IFACE   rxpck/s   txpck/s    rxkB/s    txkB/s   rxcmp/s   txcmp/s  rxmcst/s   %ifutil
-#22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
-
             if ($scan_mode eq '') {
                 if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
+                    #Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000) 	2020-06-24 	_x86_64_	(64 CPU)
                     my $ymd = $1;
                     $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
                 } elsif ( /(\d+:\d+:\d+)\s+IFACE\s+rxpck\/s\s+txpck\/s\s+rxkB\/s\s+txkB\/s\s+rxcmp\/s\s+txcmp\/s\s+rxmcst\/s\s+%ifutil$/ ) {
-                    $scan_mode = "net"
+                    #22:28:54        IFACE   rxpck/s   txpck/s    rxkB/s    txkB/s   rxcmp/s   txcmp/s  rxmcst/s   %ifutil
+                    $scan_mode = "net";
+                } elsif ( /(\d+:\d+:\d+)\s+proc\/s\s+cswch\/s$/ ) {
+                    #15:41:30       proc/s   cswch/s
+                    $scan_mode = "task";
                 }
             } else {
-                if ($scan_mode eq "net") {
+                if ($scan_mode eq "task") {
+                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                        #15:41:33       137.67   2529.67
+                        my $hour = $1;
+                        my $min = $2;
+                        my $sec = $3;
+                        my $processes_created = $4;
+                        my $context_switches = $5;
+
+                        $hms_ms = get_hms_ms($hour, $min, $sec);
+                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                            # hour-minute-second is lower than last reading so one day has passed
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                        }
+
+                        my $this_type = "Process-Creation";
+                        if (! exists $metric_types{$this_type}) {
+                            $metric_types{$this_type} = scalar @sysstat_metrics;
+                            my %this_metric;
+                            my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                        'type' => $this_type, 'name-format' => '');
+                            $this_metric{'desc'} = \%desc;
+                            push(@sysstat_metrics, \%this_metric);
+                        }
+                        my %pc_sample = ( 'value' => $processes_created, 'end' => $hms_ms + $ymd_timestamp_ms );
+                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pc_sample);
+
+                        $this_type = "Context-Switching";
+                        if (! exists $metric_types{$this_type}) {
+                            $metric_types{$this_type} = scalar @sysstat_metrics;
+                            my %this_metric;
+                            my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                        'type' => $this_type, 'name-format' => '');
+                            $this_metric{'desc'} = \%desc;
+                            push(@sysstat_metrics, \%this_metric);
+                        }
+                        my %cs_sample = ( 'value' => $context_switches, 'end' => $hms_ms + $ymd_timestamp_ms );
+                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%cs_sample);
+
+                        $prev_hms_ms = $hms_ms;
+                    }
+                } elsif ($scan_mode eq "net") {
                     if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
+                        #22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
                         my $hour = $1;
                         my $min = $2;
                         my $sec = $3;
@@ -195,10 +251,10 @@ for my $log_file (sort readdir($dh)) {
                         my $txpack = $6;
                         my $rxkB = $7;
                         my $txkB = $8;
-                        $hms_ms = 1000 * ($hour * 60 * 60 + $min * 60 + $sec);
+                        $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
                         for my $direction ('rx', 'tx') {
                             my $this_type = 'L2-Gbps';
@@ -248,10 +304,10 @@ for my $log_file (sort readdir($dh)) {
                             my $hour = $1;
                             my $min = $2;
                             my $sec = $3;
-                            $hms_ms = 1000 * ($hour * 60 * 60 + $min * 60 + $sec);
+                            $hms_ms = get_hms_ms($hour, $min, $sec);
                             if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                                 # hour-minute-second is lower than last reading so one day has passed
-                                $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
+                                $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                             }
                             for my $cpu_entry (@{ $$stat{'cpu-load'} }) {
                                 if ($$cpu_entry{'cpu'} eq "all") {
