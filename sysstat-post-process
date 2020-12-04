@@ -156,6 +156,20 @@ sub get_cpu_topology {
     }
 }
 
+sub get_hms_ms {
+    my $hour = shift;
+    my $min = shift;
+    my $sec = shift;
+
+    return (1000 * ($hour * 60 * 60 + $min * 60 + $sec));
+}
+
+sub advance_ymd {
+    my $ymd_timestamp_ms = shift;
+
+    return ($ymd_timestamp_ms + (1000 * 60 * 60 * 24));
+}
+
 my @cpu_topology; # store a hash containing package, die, core, and thread ID per element, CPU ID = index
 my @sysstat_metrics;
 my %metric_types;
@@ -195,10 +209,10 @@ for my $log_file (sort readdir($dh)) {
                         my $txpack = $6;
                         my $rxkB = $7;
                         my $txkB = $8;
-                        $hms_ms = 1000 * ($hour * 60 * 60 + $min * 60 + $sec);
+                        $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
                         for my $direction ('rx', 'tx') {
                             my $this_type = 'L2-Gbps';
@@ -248,10 +262,10 @@ for my $log_file (sort readdir($dh)) {
                             my $hour = $1;
                             my $min = $2;
                             my $sec = $3;
-                            $hms_ms = 1000 * ($hour * 60 * 60 + $min * 60 + $sec);
+                            $hms_ms = get_hms_ms($hour, $min, $sec);
                             if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                                 # hour-minute-second is lower than last reading so one day has passed
-                                $ymd_timestamp_ms += (1000 * 60 * 60 * 24);
+                                $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                             }
                             for my $cpu_entry (@{ $$stat{'cpu-load'} }) {
                                 if ($$cpu_entry{'cpu'} eq "all") {
