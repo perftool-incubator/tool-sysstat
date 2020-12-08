@@ -149,11 +149,16 @@ sub build_cpu_topology {
 sub get_cpu_topology {
     my $cpu_num = shift;
     my $cpus_ref = shift;
+    my @cpu_topo = (0, 0, $cpu_num, 0); #default if no topo info
     if (exists $$cpus_ref[$cpu_num]) {
-        return ($$cpus_ref[$cpu_num]{'package_id'}, $$cpus_ref[$cpu_num]{'die_id'}, $$cpus_ref[$cpu_num]{'core_id'}, $$cpus_ref[$cpu_num]{'thread_id'});
-    } else {
-        return (0, 0, $cpu_num, 0);
+        my @cpu_layers = ('package_id', 'die_id', 'core_id', 'thread_id');
+        for (my $i = 0; $i < scalar @cpu_layers; $i++) {
+            if (exists $$cpus_ref[$cpu_num]{$cpu_layers[$i]}) {
+                $cpu_topo[$i] = $$cpus_ref[$cpu_num]{$cpu_layers[$i]};
+            }
+        }
     }
+    return @cpu_topo;
 }
 
 sub get_hms_ms {
