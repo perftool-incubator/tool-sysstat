@@ -8,11 +8,41 @@
         {
             "name": "default",
             "requirements": [
-            "sysstat_src"
+		"xz",
+		"perl-App-cpanminus",
+                "cpan-perl-modules",
+                "sysstat_src"
             ]
         }
     ],
     "requirements": [
+	{
+	    "name": "xz",
+	    "type": "distro",
+	    "distro_info": {
+		"packages": [
+		    "xz-devel"
+		]
+	    }
+	},
+	{
+	    "name": "perl-App-cpanminus",
+	    "type": "distro",
+	    "distro_info": {
+		"packages": [
+		    "perl-App-cpanminus"
+		]
+	    }
+	},
+        {
+            "name": "cpan-perl-modules",
+            "type": "manual",
+            "manual_info": {
+                "commands": [
+                    "cpanm IO::Uncompress::UnXz IO::Compress::Xz"
+                ]
+            }
+        },
         {
             "name": "sysstat_src",
             "type": "source",

@@ -7,26 +7,28 @@ use warnings;
 use JSON::XS;
 use JSON::Validator;
 use Data::Dumper;
+use IO::Compress::Xz;
+use IO::Uncompress::UnXz;
 
 sub get_json_file {
     my $filename = shift;
     my $schema_filename = shift;
     my $coder = JSON::XS->new;
     my $jv = JSON::Validator->new;
-    open(FH, $filename) || die("Could not open file $filename\n");
+    my $log_fh = new IO::Uncompress::UnXz $filename, Transparent => 1 || die "Could not open file " . $filename;
     my $json_text = "";
-    while ( <FH> ) {
+    while ( <$log_fh> ) {
         $json_text .= $_;
     }
-    close FH;
+    close($log_fh);
     my $json_ref = $coder->decode($json_text) || die "Could not read JSON";
     if (defined $schema_filename and -e $schema_filename) {
-        open(FH, $schema_filename) or die "Could not open $schema_filename";
+	my $schema_fh = new IO::Uncompress::UnXz $schema_filename, Transparent => 1 || die "Could not open file " . $schema_filename;
         my $json_text;
-        while ( <FH> ) {
+        while ( <$schema_fh> ) {
             $json_text .= $_;
         }
-        close FH;
+        close($schema_fh);
         $jv->schema($json_text);
         my @errors = $jv->validate($json_ref);
         if (scalar @errors > 0) {
@@ -41,14 +43,14 @@ sub build_netdev_types {
     my %netdev_types;
     my $netdev_types_file = "netdev-types.txt";
     if (-f $netdev_types_file) {
-        open(FH, $netdev_types_file) || die "Could not open $netdev_types_file";
-        while ( my $line = <FH>) {
+	my $fh = new IO::Uncompress::UnXz $netdev_types_file, Transparent => 1 || die "Could not open $netdev_types_file";
+        while ( my $line = <$fh>) {
             chomp $line;
             if ($line =~ /^(\S+)\s+\.\.\/\.\.\/devices\/(\S+)$/) {
                 $netdev_types{$1} = $2;
             }
         }
-        close FH;
+        close($fh);
    }
    return \%netdev_types;
 }
@@ -175,13 +177,14 @@ my @sysstat_metrics;
 my %metric_types;
 opendir(my $dh, ".");
 for my $log_file (sort readdir($dh)) {
-    if ($log_file =~ /^sar-stdout.txt$/) {
+    if (($log_file =~ /^sar-stdout.txt$/) ||
+	($log_file =~ /^sar-stdout.txt.xz$/)) {
         my $netdev_types_ref =  build_netdev_types;
         my $ymd_timestamp_ms; # Epochtime in milliseconds
         my $scan_mode = "";
         my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
         my $prev_hms_ms;
-        open(my $log_fh, $log_file) || die "[ERROR]could not open file " . $log_file;
+	my $log_fh = new IO::Uncompress::UnXz $log_file, Transparent => 1 || die "[ERROR]could not open file " . $log_file;
 
         while (<$log_fh>) {
             chomp;
@@ -287,7 +290,8 @@ for my $log_file (sort readdir($dh)) {
             }
         }
         close($log_fh);
-    } elsif ($log_file =~ /^mpstat.json$/) {
+    } elsif (($log_file =~ /^mpstat.json$/) ||
+	     ($log_file =~ /^mpstat.json.xz$/)) {
         my $cpu_topo_ref = build_cpu_topology;
         my $json_ref = get_json_file($log_file);
         my %mpstat = %$json_ref;
@@ -351,7 +355,7 @@ for my $log_file (sort readdir($dh)) {
 closedir $dh;
 if (scalar @sysstat_metrics > 0) {
     my $coder = JSON::XS->new;
-    open(JSON_FH, ">metric-data.json") || die("Could not open file metric-data.json for writing\n");
-    print JSON_FH $coder->encode(\@sysstat_metrics);
-    close JSON_FH;
+    my $json_fh = new IO::Compress::Xz "metric-data.json.xz" || die("Could not open file metric-data.json.xz for writing\n");
+    print $json_fh $coder->encode(\@sysstat_metrics);
+    close($json_fh);
 }
