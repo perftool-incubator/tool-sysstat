@@ -222,6 +222,8 @@ for my $log_file (sort readdir($dh)) {
                         push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%cs_sample);
 
                         $prev_hms_ms = $hms_ms;
+                    } elsif ($_ eq '') {
+                        $scan_mode = '';
                     }
                 } elsif ($scan_mode eq "net") {
                     if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
