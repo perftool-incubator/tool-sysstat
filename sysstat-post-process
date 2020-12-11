@@ -7,37 +7,17 @@ use warnings;
 use JSON::XS;
 use JSON::Validator;
 use Data::Dumper;
-use IO::Compress::Xz;
-use IO::Uncompress::UnXz;
 
-sub get_json_file {
-    my $filename = shift;
-    my $schema_filename = shift;
-    my $coder = JSON::XS->new;
-    my $jv = JSON::Validator->new;
-    my $log_fh = new IO::Uncompress::UnXz $filename, Transparent => 1 || die "Could not open file " . $filename;
-    my $json_text = "";
-    while ( <$log_fh> ) {
-        $json_text .= $_;
+BEGIN {
+    if (!(exists $ENV{'TOOLBOX_HOME'} && -d "$ENV{'TOOLBOX_HOME'}/perl")) {
+	print "This script requires libraries that are provided by the toolbox project.\n";
+	print "Toolbox can be acquired from https://github.com/perftool-incubator/toolbox and\n";
+	print "then use 'export TOOLBOX_HOME=/path/to/toolbox' so that it can be located.\n";
+	exit 1;
     }
-    close($log_fh);
-    my $json_ref = $coder->decode($json_text) || die "Could not read JSON";
-    if (defined $schema_filename and -e $schema_filename) {
-	my $schema_fh = new IO::Uncompress::UnXz $schema_filename, Transparent => 1 || die "Could not open file " . $schema_filename;
-        my $json_text;
-        while ( <$schema_fh> ) {
-            $json_text .= $_;
-        }
-        close($schema_fh);
-        $jv->schema($json_text);
-        my @errors = $jv->validate($json_ref);
-        if (scalar @errors > 0) {
-            printf "Validation errors when reading %s with schema %s:\n" . Dumper \@errors,
-                   $filename, $schema_filename;
-        }
-    }
-    return $json_ref;
 }
+use lib "$ENV{'TOOLBOX_HOME'}/perl";
+use toolbox::json;
 
 sub build_netdev_types {
     my %netdev_types;
