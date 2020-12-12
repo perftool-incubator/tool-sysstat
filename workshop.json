@@ -47,11 +47,11 @@
             "name": "sysstat_src",
             "type": "source",
             "source_info": {
-                "url": "https://github.com/sysstat/sysstat/archive/v12.3.1.tar.gz",
-                "filename": "v12.3.1.tar.gz",
+                "url": "https://github.com/sysstat/sysstat/archive/v12.5.1.tar.gz",
+                "filename": "v12.5.1.tar.gz",
                 "commands": { 
-                    "unpack": "tar -xzf v12.3.1.tar.gz",
-                    "get_dir": "tar -tzf v12.3.1.tar.gz | head -n 1",
+                    "unpack": "tar -xzf v12.5.1.tar.gz",
+                    "get_dir": "tar -tzf v12.5.1.tar.gz | head -n 1",
                     "commands": [
                         "./configure",
                         "make",

@@ -80,7 +80,7 @@ for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
             ;;
         sar)
             echo "Starting sar"
-            TZ=UTC S_TIME_FORMAT=ISO sar -n ALL -B -w $interval >sar-stdout.txt 2>sar-stderr.txt &
+            TZ=UTC S_TIME_FORMAT=ISO sar -n ALL -B -q ALL -W -F -H -m ALL -w $interval >sar-stdout.txt 2>sar-stderr.txt &
             sar_pid=$!
             echo "$sar_pid" >>sysstat-pids.txt
             echo "sar pid is $sar_pid"
