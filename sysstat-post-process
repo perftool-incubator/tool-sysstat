@@ -189,9 +189,69 @@ for my $log_file (sort readdir($dh)) {
                 } elsif ( /(\d+:\d+:\d+)\s+runq-sz\s+plist-sz\s+ldavg-1\s+ldavg-5\s+ldavg-15\s+blocked$/ ) {
                     #16:19:36      runq-sz  plist-sz   ldavg-1   ldavg-5  ldavg-15   blocked
                     $scan_mode = "task-lists";
+                } elsif ( /(\d+:\d+:\d+)\s+%smem-10\s+%smem-60\s+%smem-300\s+%smem\s+%fmem-10\s+%fmem-60\s+%fmem-300\s+%fmem$/ ) {
+                    #16:19:33     %smem-10  %smem-60 %smem-300     %smem  %fmem-10  %fmem-60 %fmem-300     %fmem
+                    $scan_mode = "memory-starved";
                 }
             } else {
-                if ($scan_mode eq "task-lists") {
+                if ($scan_mode eq "memory-starved") {
+                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                        #16:19:36         0.00      0.00      0.00      0.00      0.00      0.00      0.00      0.00
+                        my $hour = $1;
+                        my $min = $2;
+                        my $sec = $3;
+                        my %memory_waiting;
+                        $memory_waiting{'10'} = $4;
+                        $memory_waiting{'60'} = $5;
+                        $memory_waiting{'300'} = $6;
+                        $memory_waiting{'last_interval'} = $7;
+                        my %memory_stalled;
+                        $memory_stalled{'10'} = $8;
+                        $memory_stalled{'60'} = $9;
+                        $memory_stalled{'300'} = $10;
+                        $memory_stalled{'last_interval'} = $11;
+
+                        $hms_ms = get_hms_ms($hour, $min, $sec);
+                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                            # hour-minute-second is lower than last reading so one day has passed
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                        }
+
+                        my $this_type = "%-Time-Tasks-Waiting-on-Memory";
+                        for my $time_window (keys %memory_waiting) {
+                            if (! exists $metric_types{$this_type}{$time_window}) {
+                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+                                my %this_metric;
+                                my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                            'type' => $this_type, 'name-format' => '%time_window%');
+                                my %names = ('time_window' => $time_window);
+                                $this_metric{'desc'} = \%desc;
+                                $this_metric{'names'} = \%names;
+                                push(@sysstat_metrics, \%this_metric);
+                            }
+                            my %this_sample = ( 'value' => $memory_waiting{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                        }
+
+                        my $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory";
+                        for my $time_window (keys %memory_stalled) {
+                            if (! exists $metric_types{$this_type}{$time_window}) {
+                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+                                my %this_metric;
+                                my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                            'type' => $this_type, 'name-format' => '%time_window%');
+                                my %names = ('time_window' => $time_window);
+                                $this_metric{'desc'} = \%desc;
+                                $this_metric{'names'} = \%names;
+                                push(@sysstat_metrics, \%this_metric);
+                            }
+                            my %this_sample = ( 'value' => $memory_stalled{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                        }
+                    } elsif ($_ eq '') {
+                        $scan_mode = '';
+                    }
+                } elsif ($scan_mode eq "task-lists") {
                     if ( /(\d+):(\d+):(\d+)\s+(\d+)\s+(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+)$/ ) {
                         #16:19:39            1       551      0.50      0.13      0.04         0
                         my $hour = $1;
