@@ -183,9 +183,69 @@ for my $log_file (sort readdir($dh)) {
                 } elsif ( /(\d+:\d+:\d+)\s+%scpu-10\s+%scpu-60\s+%scpu-300\s+%scpu$/ ) {
                     #15:20:52     %scpu-10  %scpu-60 %scpu-300     %scpu
                     $scan_mode = "cpu-starved";
+                } elsif ( /(\d+:\d+:\d+)\s+%sio-10\s+%sio-60\s+%sio-300\s+%sio\s+%fio-10\s+%fio-60\s+%fio-300\s+%fio$/ ) {
+                    #16:19:33      %sio-10   %sio-60  %sio-300      %sio   %fio-10   %fio-60  %fio-300      %fio
+                    $scan_mode = "io-starved";
                 }
             } else {
-                if ($scan_mode eq "cpu-starved") {
+                if ($scan_mode eq "io-starved") {
+                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                        #16:19:36         0.13      0.17      0.04      0.01      0.10      0.12      0.03      0.00
+                        my $hour = $1;
+                        my $min = $2;
+                        my $sec = $3;
+                        my %io_time_lost;
+                        $io_time_lost{'10'} = $4;
+                        $io_time_lost{'60'} = $5;
+                        $io_time_lost{'300'} = $6;
+                        $io_time_lost{'last_interval'} = $7;
+                        my %io_time_stalled;
+                        $io_time_stalled{'10'} = $8;
+                        $io_time_stalled{'60'} = $9;
+                        $io_time_stalled{'300'} = $10;
+                        $io_time_stalled{'last_interval'} = $11;
+
+                        $hms_ms = get_hms_ms($hour, $min, $sec);
+                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                            # hour-minute-second is lower than last reading so one day has passed
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                        }
+
+                        my $this_type = "%-Time-Tasks-Lost-Waiting-on-IO";
+                        for my $time_window (keys %io_time_lost) {
+                            if (! exists $metric_types{$this_type}{$time_window}) {
+                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+                                my %this_metric;
+                                my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                            'type' => $this_type, 'name-format' => '%time_window%');
+                                my %names = ('time_window' => $time_window);
+                                $this_metric{'desc'} = \%desc;
+                                $this_metric{'names'} = \%names;
+                                push(@sysstat_metrics, \%this_metric);
+                            }
+                            my %this_sample = ( 'value' => $io_time_lost{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                        }
+
+                        my $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO";
+                        for my $time_window (keys %io_time_stalled) {
+                            if (! exists $metric_types{$this_type}{$time_window}) {
+                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+                                my %this_metric;
+                                my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                            'type' => $this_type, 'name-format' => '%time_window%');
+                                my %names = ('time_window' => $time_window);
+                                $this_metric{'desc'} = \%desc;
+                                $this_metric{'names'} = \%names;
+                                push(@sysstat_metrics, \%this_metric);
+                            }
+                            my %this_sample = ( 'value' => $io_time_stalled{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                        }
+                    } elsif ($_ eq '') {
+                        $scan_mode = '';
+                    }
+                } elsif ($scan_mode eq "cpu-starved") {
                     if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
                         #15:20:55         7.12      2.37      2.33      5.14
                         my $hour = $1;
