@@ -374,7 +374,7 @@ for my $log_file (sort readdir($dh)) {
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
 
-                        my $this_type = "Process-Creation";
+                        my $this_type = "Processes-created-sec";
                         if (! exists $metric_types{$this_type}) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
@@ -386,7 +386,7 @@ for my $log_file (sort readdir($dh)) {
                         my %pc_sample = ( 'value' => $processes_created, 'end' => $hms_ms + $ymd_timestamp_ms );
                         push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pc_sample);
 
-                        $this_type = "Context-Switching";
+                        $this_type = "Context-switches-sec";
                         if (! exists $metric_types{$this_type}) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
