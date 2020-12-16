@@ -245,14 +245,14 @@ for my $log_file (sort readdir($dh)) {
                         my $min = $2;
                         my $sec = $3;
                         my %memory_waiting;
-                        $memory_waiting{'10'} = $4;
-                        $memory_waiting{'60'} = $5;
-                        $memory_waiting{'300'} = $6;
+                        $memory_waiting{'010s'} = $4;
+                        $memory_waiting{'060s'} = $5;
+                        $memory_waiting{'300s'} = $6;
                         $memory_waiting{'last_interval'} = $7;
                         my %memory_stalled;
-                        $memory_stalled{'10'} = $8;
-                        $memory_stalled{'60'} = $9;
-                        $memory_stalled{'300'} = $10;
+                        $memory_stalled{'010s'} = $8;
+                        $memory_stalled{'060s'} = $9;
+                        $memory_stalled{'300s'} = $10;
                         $memory_stalled{'last_interval'} = $11;
 
                         $hms_ms = get_hms_ms($hour, $min, $sec);
@@ -261,36 +261,32 @@ for my $log_file (sort readdir($dh)) {
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
 
-                        my $this_type = "%-Time-Tasks-Waiting-on-Memory";
                         for my $time_window (keys %memory_waiting) {
-                            if (! exists $metric_types{$this_type}{$time_window}) {
-                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+			    my $this_type = "%-Time-Tasks-Waiting-on-Memory-" . $time_window;
+                            if (! exists $metric_types{$this_type}) {
+                                $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%time_window%');
-                                my %names = ('time_window' => $time_window);
+                                            'type' => $this_type, 'name-format' => '');
                                 $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
                             }
                             my %this_sample = ( 'value' => $memory_waiting{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
                         }
 
-                        $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory";
                         for my $time_window (keys %memory_stalled) {
-                            if (! exists $metric_types{$this_type}{$time_window}) {
-                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+			    my $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory-" . $time_window;
+                            if (! exists $metric_types{$this_type}) {
+                                $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%time_window%');
-                                my %names = ('time_window' => $time_window);
+                                            'type' => $this_type, 'name-format' => '');
                                 $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
                             }
                             my %this_sample = ( 'value' => $memory_stalled{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
                         }
                     } elsif ($_ eq '') {
                         $scan_mode = '';
@@ -304,9 +300,9 @@ for my $log_file (sort readdir($dh)) {
                         my $run_queue_length = $4;
                         my $process_list_size = $5;
                         my %load_average;
-                        $load_average{'1'} = $6;
-                        $load_average{'5'} = $7;
-                        $load_average{'15'} = $8;
+                        $load_average{'01m'} = $6;
+                        $load_average{'05m'} = $7;
+                        $load_average{'15m'} = $8;
                         my $io_blocked_tasks = $9;
 
                         $hms_ms = get_hms_ms($hour, $min, $sec);
@@ -339,20 +335,18 @@ for my $log_file (sort readdir($dh)) {
                         my %pls_sample = ( 'value' => $process_list_size, 'end' => $hms_ms + $ymd_timestamp_ms );
                         push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pls_sample);
 
-                        $this_type = "Load-Average";
                         for my $time_window (keys %load_average) {
-                            if (! exists $metric_types{$this_type}{$time_window}) {
-                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+			    $this_type = "Load-Average-" . $time_window;
+                            if (! exists $metric_types{$this_type}) {
+                                $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'count', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%time_window%');
-                                my %names = ('time_window' => $time_window);
+                                            'type' => $this_type, 'name-format' => '');
                                 $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
                             }
                             my %this_sample = ( 'value' => $load_average{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
                         }
 
                         $this_type = "IO-Blocked-Tasks";
@@ -376,14 +370,14 @@ for my $log_file (sort readdir($dh)) {
                         my $min = $2;
                         my $sec = $3;
                         my %io_time_lost;
-                        $io_time_lost{'10'} = $4;
-                        $io_time_lost{'60'} = $5;
-                        $io_time_lost{'300'} = $6;
+                        $io_time_lost{'010s'} = $4;
+                        $io_time_lost{'060s'} = $5;
+                        $io_time_lost{'300s'} = $6;
                         $io_time_lost{'last_interval'} = $7;
                         my %io_time_stalled;
-                        $io_time_stalled{'10'} = $8;
-                        $io_time_stalled{'60'} = $9;
-                        $io_time_stalled{'300'} = $10;
+                        $io_time_stalled{'010s'} = $8;
+                        $io_time_stalled{'060s'} = $9;
+                        $io_time_stalled{'300s'} = $10;
                         $io_time_stalled{'last_interval'} = $11;
 
                         $hms_ms = get_hms_ms($hour, $min, $sec);
@@ -392,36 +386,32 @@ for my $log_file (sort readdir($dh)) {
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
 
-                        my $this_type = "%-Time-Tasks-Lost-Waiting-on-IO";
                         for my $time_window (keys %io_time_lost) {
-                            if (! exists $metric_types{$this_type}{$time_window}) {
-                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+			    my $this_type = "%-Time-Tasks-Lost-Waiting-on-IO-" . $time_window;
+                            if (! exists $metric_types{$this_type}) {
+                                $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%time_window%');
-                                my %names = ('time_window' => $time_window);
+                                            'type' => $this_type, 'name-format' => '');
                                 $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
                             }
                             my %this_sample = ( 'value' => $io_time_lost{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
                         }
 
-                        $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO";
                         for my $time_window (keys %io_time_stalled) {
-                            if (! exists $metric_types{$this_type}{$time_window}) {
-                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+			    my $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO-" . $time_window;
+                            if (! exists $metric_types{$this_type}) {
+                                $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%time_window%');
-                                my %names = ('time_window' => $time_window);
+                                            'type' => $this_type, 'name-format' => '');
                                 $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
                             }
                             my %this_sample = ( 'value' => $io_time_stalled{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
                         }
                     } elsif ($_ eq '') {
                         $scan_mode = '';
@@ -433,9 +423,9 @@ for my $log_file (sort readdir($dh)) {
                         my $min = $2;
                         my $sec = $3;
                         my %cpu_starved;
-                        $cpu_starved{'10'} = $4;
-                        $cpu_starved{'60'} = $5;
-                        $cpu_starved{'300'} = $6;
+                        $cpu_starved{'010s'} = $4;
+                        $cpu_starved{'060s'} = $5;
+                        $cpu_starved{'300s'} = $6;
                         $cpu_starved{'last_interval'} = $7;
 
                         $hms_ms = get_hms_ms($hour, $min, $sec);
@@ -444,20 +434,18 @@ for my $log_file (sort readdir($dh)) {
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
 
-                        my $this_type = "%-Time-Tasks-CPU-Starved";
                         for my $time_window (keys %cpu_starved) {
-                            if (! exists $metric_types{$this_type}{$time_window}) {
-                                $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
+			    my $this_type = "%-Time-Tasks-CPU-Starved-" . $time_window;
+                            if (! exists $metric_types{$this_type}) {
+                                $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar',
-                                            'type' => $this_type, 'name-format' => '%time_window%');
-                                my %names = ('time_window' => $time_window);
+                                            'type' => $this_type, 'name-format' => '');
                                 $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
                                 push(@sysstat_metrics, \%this_metric);
                             }
                             my %this_sample = ( 'value' => $cpu_starved{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
+                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
                         }
                         $prev_hms_ms = $hms_ms;
                     } elsif ($_ eq '') {
