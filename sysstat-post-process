@@ -233,7 +233,7 @@ for my $log_file (sort readdir($dh)) {
                             push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
                         }
 
-                        my $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory";
+                        $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory";
                         for my $time_window (keys %memory_stalled) {
                             if (! exists $metric_types{$this_type}{$time_window}) {
                                 $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
@@ -364,7 +364,7 @@ for my $log_file (sort readdir($dh)) {
                             push(@{ $sysstat_metrics[$metric_types{$this_type}{$time_window}]{'data'}}, \%this_sample);
                         }
 
-                        my $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO";
+                        $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO";
                         for my $time_window (keys %io_time_stalled) {
                             if (! exists $metric_types{$this_type}{$time_window}) {
                                 $metric_types{$this_type}{$time_window} = scalar @sysstat_metrics;
