@@ -192,9 +192,53 @@ for my $log_file (sort readdir($dh)) {
                 } elsif ( /(\d+:\d+:\d+)\s+%smem-10\s+%smem-60\s+%smem-300\s+%smem\s+%fmem-10\s+%fmem-60\s+%fmem-300\s+%fmem$/ ) {
                     #16:19:33     %smem-10  %smem-60 %smem-300     %smem  %fmem-10  %fmem-60 %fmem-300     %fmem
                     $scan_mode = "memory-starved";
+                } elsif ( /(\d+:\d+:\d+)\s+pswpin\/s\s+pswpout\/s$/ ) {
+                    #16:19:36     pswpin/s pswpout/s
+                    $scan_mode = "swapping";
                 }
             } else {
-                if ($scan_mode eq "memory-starved") {
+                if ($scan_mode eq "swapping") {
+                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                        #16:19:39         0.00      0.00
+                        my $hour = $1;
+                        my $min = $2;
+                        my $sec = $3;
+                        my $pages_in = $4;
+                        my $pages_out = $5;
+
+                        $hms_ms = get_hms_ms($hour, $min, $sec);
+                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                            # hour-minute-second is lower than last reading so one day has passed
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                        }
+
+                        my $this_type = "Pages-swapped-in-sec";
+                        if (! exists $metric_types{$this_type}) {
+                            $metric_types{$this_type} = scalar @sysstat_metrics;
+                            my %this_metric;
+                            my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                        'type' => $this_type, 'name-format' => '');
+                            $this_metric{'desc'} = \%desc;
+                            push(@sysstat_metrics, \%this_metric);
+                        }
+                        my %psi_sample = ( 'value' => $pages_in, 'end' => $hms_ms + $ymd_timestamp_ms );
+                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%psi_sample);
+
+                        $this_type = "Pages-swapped-out-sec";
+                        if (! exists $metric_types{$this_type}) {
+                            $metric_types{$this_type} = scalar @sysstat_metrics;
+                            my %this_metric;
+                            my %desc = ('class' => 'throughput', 'source' => 'sar',
+                                        'type' => $this_type, 'name-format' => '');
+                            $this_metric{'desc'} = \%desc;
+                            push(@sysstat_metrics, \%this_metric);
+                        }
+                        my %pso_sample = ( 'value' => $pages_out, 'end' => $hms_ms + $ymd_timestamp_ms );
+                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pso_sample);
+                    } elsif ($_ eq '') {
+                        $scan_mode = '';
+                    }
+                } elsif ($scan_mode eq "memory-starved") {
                     if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
                         #16:19:36         0.00      0.00      0.00      0.00      0.00      0.00      0.00      0.00
                         my $hour = $1;
