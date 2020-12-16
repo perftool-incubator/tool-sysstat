@@ -262,7 +262,7 @@ for my $log_file (sort readdir($dh)) {
                         }
 
                         for my $time_window (keys %memory_waiting) {
-			    my $this_type = "%-Time-Tasks-Waiting-on-Memory-" . $time_window;
+                            my $this_type = "%-Time-Tasks-Waiting-on-Memory-" . $time_window;
                             if (! exists $metric_types{$this_type}) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
@@ -276,7 +276,7 @@ for my $log_file (sort readdir($dh)) {
                         }
 
                         for my $time_window (keys %memory_stalled) {
-			    my $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory-" . $time_window;
+                            my $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory-" . $time_window;
                             if (! exists $metric_types{$this_type}) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
@@ -336,7 +336,7 @@ for my $log_file (sort readdir($dh)) {
                         push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pls_sample);
 
                         for my $time_window (keys %load_average) {
-			    $this_type = "Load-Average-" . $time_window;
+                            $this_type = "Load-Average-" . $time_window;
                             if (! exists $metric_types{$this_type}) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
@@ -387,7 +387,7 @@ for my $log_file (sort readdir($dh)) {
                         }
 
                         for my $time_window (keys %io_time_lost) {
-			    my $this_type = "%-Time-Tasks-Lost-Waiting-on-IO-" . $time_window;
+                            my $this_type = "%-Time-Tasks-Lost-Waiting-on-IO-" . $time_window;
                             if (! exists $metric_types{$this_type}) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
@@ -401,7 +401,7 @@ for my $log_file (sort readdir($dh)) {
                         }
 
                         for my $time_window (keys %io_time_stalled) {
-			    my $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO-" . $time_window;
+                            my $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO-" . $time_window;
                             if (! exists $metric_types{$this_type}) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
@@ -435,7 +435,7 @@ for my $log_file (sort readdir($dh)) {
                         }
 
                         for my $time_window (keys %cpu_starved) {
-			    my $this_type = "%-Time-Tasks-CPU-Starved-" . $time_window;
+                            my $this_type = "%-Time-Tasks-CPU-Starved-" . $time_window;
                             if (! exists $metric_types{$this_type}) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
