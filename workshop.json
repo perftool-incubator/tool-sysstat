@@ -1,66 +1,46 @@
 {
-    "workshop": {
-        "schema": {
-            "version": "2020.03.02"
-        }
+  "workshop": {
+    "schema": {
+      "version": "2020.03.02"
+    }
+  },
+  "userenvs": [
+    {
+      "name": "default",
+      "requirements": [
+        "xz",
+        "sysstat_src"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "name": "xz",
+      "type": "distro",
+      "distro_info": {
+        "packages": [
+          "xz-devel"
+        ]
+      }
     },
-    "userenvs": [
-        {
-            "name": "default",
-            "requirements": [
-		"xz",
-		"perl-App-cpanminus",
-                "cpan-perl-modules",
-                "sysstat_src"
-            ]
+    {
+      "name": "sysstat_src",
+      "type": "source",
+      "source_info": {
+        "url": "https://github.com/sysstat/sysstat/archive/v12.5.1.tar.gz",
+        "filename": "v12.5.1.tar.gz",
+        "commands": {
+          "unpack": "tar -xzf v12.5.1.tar.gz",
+          "get_dir": "tar -tzf v12.5.1.tar.gz | head -n 1",
+          "commands": [
+            "./configure",
+            "make",
+            "make install",
+            "ldconfig",
+            "/usr/local/bin/sar -V"
+          ]
         }
-    ],
-    "requirements": [
-	{
-	    "name": "xz",
-	    "type": "distro",
-	    "distro_info": {
-		"packages": [
-		    "xz-devel"
-		]
-	    }
-	},
-	{
-	    "name": "perl-App-cpanminus",
-	    "type": "distro",
-	    "distro_info": {
-		"packages": [
-		    "perl-App-cpanminus"
-		]
-	    }
-	},
-        {
-            "name": "cpan-perl-modules",
-            "type": "manual",
-            "manual_info": {
-                "commands": [
-                    "cpanm IO::Uncompress::UnXz IO::Compress::Xz"
-                ]
-            }
-        },
-        {
-            "name": "sysstat_src",
-            "type": "source",
-            "source_info": {
-                "url": "https://github.com/sysstat/sysstat/archive/v12.5.1.tar.gz",
-                "filename": "v12.5.1.tar.gz",
-                "commands": { 
-                    "unpack": "tar -xzf v12.5.1.tar.gz",
-                    "get_dir": "tar -tzf v12.5.1.tar.gz | head -n 1",
-                    "commands": [
-                        "./configure",
-                        "make",
-                        "make install",
-                        "ldconfig",
-                        "/usr/local/bin/sar -V"
-                    ]
-                }
-            }
-        }
-    ]
+      }
+    }
+  ]
 }
