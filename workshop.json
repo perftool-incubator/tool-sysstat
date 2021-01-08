@@ -8,21 +8,11 @@
     {
       "name": "default",
       "requirements": [
-        "xz",
         "sysstat_src"
       ]
     }
   ],
   "requirements": [
-    {
-      "name": "xz",
-      "type": "distro",
-      "distro_info": {
-        "packages": [
-          "xz-devel"
-        ]
-      }
-    },
     {
       "name": "sysstat_src",
       "type": "source",
