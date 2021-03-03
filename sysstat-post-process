@@ -228,7 +228,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -240,7 +240,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -253,7 +253,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type}{$fault_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                            'type' => $this_type, 'name-format' => '%type%');
+                                            'type' => $this_type);
                                 my %names = ('type' => $fault_type);
                                 $this_metric{'desc'} = \%desc;
                                 $this_metric{'names'} = \%names;
@@ -268,7 +268,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -280,7 +280,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -292,7 +292,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -304,7 +304,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -316,7 +316,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -345,7 +345,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -357,7 +357,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -395,7 +395,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                            'type' => $this_type, 'name-format' => '');
+                                            'type' => $this_type);
                                 $this_metric{'desc'} = \%desc;
                                 push(@sysstat_metrics, \%this_metric);
                             }
@@ -409,7 +409,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                            'type' => $this_type, 'name-format' => '');
+                                            'type' => $this_type);
                                 $this_metric{'desc'} = \%desc;
                                 push(@sysstat_metrics, \%this_metric);
                             }
@@ -444,7 +444,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'count', 'source' => 'sar-scheduler',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -456,7 +456,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'count', 'source' => 'sar-scheduler',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -469,7 +469,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'count', 'source' => 'sar-scheduler',
-                                            'type' => $this_type, 'name-format' => '');
+                                            'type' => $this_type);
                                 $this_metric{'desc'} = \%desc;
                                 push(@sysstat_metrics, \%this_metric);
                             }
@@ -482,7 +482,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'count', 'source' => 'sar-io',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -520,7 +520,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-io',
-                                            'type' => $this_type, 'name-format' => '');
+                                            'type' => $this_type);
                                 $this_metric{'desc'} = \%desc;
                                 push(@sysstat_metrics, \%this_metric);
                             }
@@ -534,7 +534,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-io',
-                                            'type' => $this_type, 'name-format' => '');
+                                            'type' => $this_type);
                                 $this_metric{'desc'} = \%desc;
                                 push(@sysstat_metrics, \%this_metric);
                             }
@@ -568,7 +568,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler',
-                                            'type' => $this_type, 'name-format' => '');
+                                            'type' => $this_type);
                                 $this_metric{'desc'} = \%desc;
                                 push(@sysstat_metrics, \%this_metric);
                             }
@@ -599,7 +599,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-tasks',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -611,7 +611,7 @@ for my $log_file (sort readdir($dh)) {
                             $metric_types{$this_type} = scalar @sysstat_metrics;
                             my %this_metric;
                             my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler',
-                                        'type' => $this_type, 'name-format' => '');
+                                        'type' => $this_type);
                             $this_metric{'desc'} = \%desc;
                             push(@sysstat_metrics, \%this_metric);
                         }
@@ -646,7 +646,7 @@ for my $log_file (sort readdir($dh)) {
                                 $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
                                 my %this_metric;
                                 my %desc = ('class' => 'throughput', 'source' => 'sar-net',
-                                            'type' => $this_type, 'name-format' => '%type%-%dev%-%direction%');
+                                            'type' => $this_type);
                                 my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
                                 $this_metric{'desc'} = \%desc;
                                 $this_metric{'names'} = \%names;
@@ -711,7 +711,7 @@ for my $log_file (sort readdir($dh)) {
                                         $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
                                         my %this_metric;
                                         my %desc = ('class' => 'throughput', 'source' => 'mpstat',
-                                                    'type' => $this_type, 'name-format' => '%package%-%die%-%core%-%thread%-%num%-%type%');
+                                                    'type' => $this_type);
                                         my %names = ('package' => $package, 'die' => $die, 'core' => $core, 'thread' => $thread, 'num' => $$cpu_entry{'cpu'}, 'type' => $cpu_type);
                                         $this_metric{'desc'} = \%desc;
                                         $this_metric{'names'} = \%names;
