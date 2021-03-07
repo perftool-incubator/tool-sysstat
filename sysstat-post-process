@@ -18,6 +18,7 @@ BEGIN {
 }
 use lib "$ENV{'TOOLBOX_HOME'}/perl";
 use toolbox::json;
+use toolbox::cpu;
 
 sub build_netdev_types {
     my %netdev_types;
@@ -48,94 +49,6 @@ sub get_netdev_type {
         }
     }
     return "unknown";
-}
-
-sub build_cpu_topology {
-    my @cpu_topo;
-    my $cpu_topo_path = "sys/devices/system/cpu";
-    if (-d $cpu_topo_path) {
-        opendir(my $dh, $cpu_topo_path);
-        for my $cpu_dir (grep(/^cpu\d+/, sort readdir($dh))) {
-            my $cpu_id = $cpu_dir;
-            $cpu_id =~ s/^cpu//;
-            chomp $cpu_id;
-            my $this_cpu_topo_path = $cpu_topo_path . "/" . $cpu_dir . "/topology";
-            if (-d $this_cpu_topo_path) {
-                my %topo;
-                my $file;
-                for my $this_cpu_type ('physical_package_id', 'die_id', 'core_id') {
-                    $file = $this_cpu_topo_path . "/" . $this_cpu_type;
-                    if (-e $file) {
-                        open(FH, $file) or die "Could not open $file";
-                        my $id = <FH>;
-                        close FH;
-                        chomp $id;
-                        if ($id =~ /^\d+$/) {
-                            if ($this_cpu_type eq "physical_package_id") {
-                                # Keep the naming consistent, $single_word_heirarchy_level . "_id"
-                                $topo{'package_id'} = $id;
-                            } else {
-                                $topo{$this_cpu_type} = $id;
-                            }
-                        } else {
-                            die "CPU ID for %s is not a valid number\n". $file;
-                        }
-                    } else {
-                        printf "WARNING: could not find %s\n", $file;
-                    }
-                }
-                # Getting a cpu-thread ID is not as straight forward as it is for package, die,
-                # and core.  Sysfs does not provide an actual thread id.  We must what position
-                # in the list of thread_siblings our [logical] cpu id is and use that position
-                # as the thread id.
-                $file = $cpu_topo_path . "/" . $cpu_dir . "/topology/thread_siblings_list";
-                if (-e $file) {
-                    open(FH, $file);
-                    my $list = <FH>;
-                    chomp $list;
-                    close FH;
-                    my $thread_id = 0;
-                    # We need an ordered list with no x-y ranges in it
-                    for my $range (split(/,/, $list)) {
-                        if ($range =~ /(\d+)-(\d+)/) {
-                            my $i;
-                            for ($i = $1; $i <= $2; $i++) {
-                                if ($i == $cpu_id) {
-                                    $topo{'thread_id'} = $thread_id;
-                                    last;
-                                }
-                                $thread_id++;
-                            }
-                        } else {
-                            if ($range == $cpu_id) {
-                                $topo{'thread_id'} = $thread_id;
-                                last;
-                            }
-                            $thread_id++;
-                        }
-                    }
-                } else {
-                    printf "WARNING: could not find %s\n", $file;
-                }
-                $cpu_topo[$cpu_id] = \%topo;
-            } else {
-                printf "WARNING: could not find %s\n", $this_cpu_topo_path;
-            }
-        }
-    } else {
-        printf "WARNING: could not find %s\n", $cpu_topo_path;
-    }
-    return \@cpu_topo;
-}
-
-sub get_cpu_topology {
-    my $cpu_num = shift;
-    my $cpus_ref = shift;
-    if (exists $$cpus_ref[$cpu_num]) {
-        return ($$cpus_ref[$cpu_num]{'package_id'}, $$cpus_ref[$cpu_num]{'die_id'}, $$cpus_ref[$cpu_num]{'core_id'}, $$cpus_ref[$cpu_num]{'thread_id'});
-    } else {
-        return (0, 0, $cpu_num, 0);
-    }
 }
 
 sub get_hms_ms {
@@ -671,7 +584,7 @@ for my $log_file (sort readdir($dh)) {
         close($log_fh);
     } elsif (($log_file =~ /^mpstat.json$/) ||
 	     ($log_file =~ /^mpstat.json.xz$/)) {
-        my $cpu_topo_ref = build_cpu_topology;
+        my $cpu_topo_ref = build_cpu_topology("sys/devices/system/cpu");
         my $json_ref = get_json_file($log_file);
         my %mpstat = %$json_ref;
         my $ymd_timestamp_ms; # Epochtime in milliseconds
