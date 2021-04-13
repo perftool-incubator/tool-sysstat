@@ -10,21 +10,22 @@ use Data::Dumper;
 
 BEGIN {
     if (!(exists $ENV{'TOOLBOX_HOME'} && -d "$ENV{'TOOLBOX_HOME'}/perl")) {
-	print "This script requires libraries that are provided by the toolbox project.\n";
-	print "Toolbox can be acquired from https://github.com/perftool-incubator/toolbox and\n";
-	print "then use 'export TOOLBOX_HOME=/path/to/toolbox' so that it can be located.\n";
-	exit 1;
+    print "This script requires libraries that are provided by the toolbox project.\n";
+    print "Toolbox can be acquired from https://github.com/perftool-incubator/toolbox and\n";
+    print "then use 'export TOOLBOX_HOME=/path/to/toolbox' so that it can be located.\n";
+    exit 1;
     }
 }
 use lib "$ENV{'TOOLBOX_HOME'}/perl";
 use toolbox::json;
 use toolbox::cpu;
+use toolbox::metrics;
 
 sub build_netdev_types {
     my %netdev_types;
     my $netdev_types_file = "netdev-types.txt";
     if (-f $netdev_types_file) {
-	my $fh = new IO::Uncompress::UnXz $netdev_types_file, Transparent => 1 || die "Could not open $netdev_types_file";
+    my $fh = new IO::Uncompress::UnXz $netdev_types_file, Transparent => 1 || die "Could not open $netdev_types_file";
         while ( my $line = <$fh>) {
             chomp $line;
             if ($line =~ /^(\S+)\s+\.\.\/\.\.\/devices\/(\S+)$/) {
@@ -66,25 +67,23 @@ sub advance_ymd {
 }
 
 my @cpu_topology; # store a hash containing package, die, core, and thread ID per element, CPU ID = index
-my @sysstat_metrics;
 my %metric_types;
+my %no_names = ();
 opendir(my $dh, ".");
 for my $log_file (sort readdir($dh)) {
     if (($log_file =~ /^sar-stdout.txt$/) ||
-	($log_file =~ /^sar-stdout.txt.xz$/)) {
+    ($log_file =~ /^sar-stdout.txt.xz$/)) {
         my $netdev_types_ref =  build_netdev_types;
         my $ymd_timestamp_ms; # Epochtime in milliseconds
         my $scan_mode = "";
         my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
         my $prev_hms_ms;
-	my $log_fh = new IO::Uncompress::UnXz $log_file, Transparent => 1 || die "[ERROR]could not open file " . $log_file;
-
+        my $log_fh = new IO::Uncompress::UnXz $log_file, Transparent => 1 || die "[ERROR]could not open file " . $log_file;
         while (<$log_fh>) {
             chomp;
-
             if ($scan_mode eq '') {
                 if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
-                    #Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000) 	2020-06-24 	_x86_64_	(64 CPU)
+                    #Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000)  2020-06-24  _x86_64_    (64 CPU)
                     my $ymd = $1;
                     $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
                 } elsif ( /(\d+:\d+:\d+)\s+IFACE\s+rxpck\/s\s+txpck\/s\s+rxkB\/s\s+txkB\/s\s+rxcmp\/s\s+txcmp\/s\s+rxmcst\/s\s+%ifutil$/ ) {
@@ -129,112 +128,41 @@ for my $log_file (sort readdir($dh)) {
                         my $scanned_pages = $10;
                         my $reclaimed_pages = $11;
                         my $vm_efficiency = $12;
-
                         $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
 
-                        my $this_type = "KB-Paged-in-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %kbpi_sample = ( 'value' => $kb_paged_in, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%kbpi_sample);
-
-                        $this_type = "KB-Paged-out-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %kbpo_sample = ( 'value' => $kb_paged_out, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%kbpo_sample);
-
+                        $desc{'type'} = 'KB-Paged-in-sec';
+                        $sample{'value'} = $kb_paged_in;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'KB-Paged-out-sec';
+                        $sample{'value'} = $kb_paged_out;
+                        log_sample(0, \%desc, \%no_names, \%sample);
                         for my $fault_type (keys %faults) {
-                            $this_type = 'Page-faults-sec';
-                            if (! exists $metric_types{$this_type}{$fault_type}) {
-                                $metric_types{$this_type}{$fault_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                            'type' => $this_type);
-                                my %names = ('type' => $fault_type);
-                                $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $faults{$fault_type}, 'end' => $hms_ms + $ymd_timestamp_ms);
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$fault_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = 'Page-faults-sec';
+                            my %names = ('type' => $fault_type);
+                            $sample{'value'} = $faults{$fault_type};
+                            log_sample(0, \%desc, \%names, \%sample);
                         }
-
-                        $this_type = "Pages-freed-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %fp_sample = ( 'value' => $freed_pages, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%fp_sample);
-
-                        $this_type = "kswapd-scanned-pages-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %ksp_sample = ( 'value' => $kswapd_scanned_pages, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%ksp_sample);
-
-                        $this_type = "scanned-pages-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %sp_sample = ( 'value' => $scanned_pages, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%sp_sample);
-
-                        $this_type = "reclaimed-pages-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %rp_sample = ( 'value' => $reclaimed_pages, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%rp_sample);
-
-                        $this_type = "VM-Efficiency";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %vme_sample = ( 'value' => $vm_efficiency, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%vme_sample);
+                        $desc{'type'} = 'Pages-freed-sec';
+                        $sample{'value'} = $freed_pages;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'kswapd-scanned-pages-sec';
+                        $sample{'value'} = $kswapd_scanned_pages;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'scanned-pages-sec';
+                        $sample{'value'} = $scanned_pages;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'reclaimed-pages-sec';
+                        $sample{'value'} = $reclaimed_pages;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'VM-Efficiency';
+                        $sample{'value'} = $vm_efficiency;
+                        log_sample(0, \%desc, \%no_names, \%sample);
                     } elsif ($_ eq '') {
                         $scan_mode = '';
                     }
@@ -252,30 +180,14 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-
-                        my $this_type = "Pages-swapped-in-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %psi_sample = ( 'value' => $pages_in, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%psi_sample);
-
-                        $this_type = "Pages-swapped-out-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %pso_sample = ( 'value' => $pages_out, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pso_sample);
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
+                        $desc{'type'} = 'Pages-swapped-in-sec';
+                        $sample{'value'} = $pages_in;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'Pages-swapped-out-sec';
+                        $sample{'value'} = $pages_out;
+                        log_sample(0, \%desc, \%no_names, \%sample);
                     } elsif ($_ eq '') {
                         $scan_mode = '';
                     }
@@ -295,39 +207,22 @@ for my $log_file (sort readdir($dh)) {
                         $memory_stalled{'060s'} = $9;
                         $memory_stalled{'300s'} = $10;
                         $memory_stalled{'last_interval'} = $11;
-
                         $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
                         for my $time_window (keys %memory_waiting) {
-                            my $this_type = "%-Time-Tasks-Waiting-on-Memory-" . $time_window;
-                            if (! exists $metric_types{$this_type}) {
-                                $metric_types{$this_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                            'type' => $this_type);
-                                $this_metric{'desc'} = \%desc;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $memory_waiting{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = '%-Time-Tasks-Waiting-on-Memory-' . $time_window;
+                            $sample{'value'} = $memory_waiting{$time_window};
+                            log_sample(0, \%desc, \%no_names, \%sample);
                         }
-
                         for my $time_window (keys %memory_stalled) {
-                            my $this_type = "%-Time-Non-Idle-Tasks-Stalled-on-Memory-" . $time_window;
-                            if (! exists $metric_types{$this_type}) {
-                                $metric_types{$this_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-mem',
-                                            'type' => $this_type);
-                                $this_metric{'desc'} = \%desc;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $memory_stalled{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = '%-Time-Non-Idle-Tasks-Stalled-on-Memory-' . $time_window;
+                            $sample{'value'} = $memory_stalled{$time_window};
+                            log_sample(0, \%desc, \%no_names, \%sample);
                         }
                     } elsif ($_ eq '') {
                         $scan_mode = '';
@@ -345,62 +240,27 @@ for my $log_file (sort readdir($dh)) {
                         $load_average{'05m'} = $7;
                         $load_average{'15m'} = $8;
                         my $io_blocked_tasks = $9;
-
                         $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-
-                        my $this_type = "Run-Queue-Length";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'count', 'source' => 'sar-scheduler',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %rql_sample = ( 'value' => $run_queue_length, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%rql_sample);
-
-                        $this_type = "Process-List-Size";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'count', 'source' => 'sar-scheduler',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %pls_sample = ( 'value' => $process_list_size, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pls_sample);
-
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'count', 'source' => 'sar-scheduler');
+                        $desc{'type'} = 'Run-Queue-Length';
+                        $sample{'value'} = $run_queue_length;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'Process-List-Size';
+                        $sample{'value'} = $process_list_size;
+                        log_sample(0, \%desc, \%no_names, \%sample);
                         for my $time_window (keys %load_average) {
-                            $this_type = "Load-Average-" . $time_window;
-                            if (! exists $metric_types{$this_type}) {
-                                $metric_types{$this_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'count', 'source' => 'sar-scheduler',
-                                            'type' => $this_type);
-                                $this_metric{'desc'} = \%desc;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $load_average{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = 'Load-Average-' . $time_window;
+                            $sample{'value'} = $load_average{$time_window};
+                            log_sample(0, \%desc, \%no_names, \%sample);
                         }
-
-                        $this_type = "IO-Blocked-Tasks";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'count', 'source' => 'sar-io',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %ibt_sample = ( 'value' => $io_blocked_tasks, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%ibt_sample);
+                        $desc{'type'} = 'IO-Blocked-Tasks';
+                        $sample{'value'} = $io_blocked_tasks;
+                        log_sample(0, \%desc, \%no_names, \%sample);
                     } elsif ($_ eq '') {
                         $scan_mode = '';
                     }
@@ -420,39 +280,22 @@ for my $log_file (sort readdir($dh)) {
                         $io_time_stalled{'060s'} = $9;
                         $io_time_stalled{'300s'} = $10;
                         $io_time_stalled{'last_interval'} = $11;
-
                         $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-io');
                         for my $time_window (keys %io_time_lost) {
-                            my $this_type = "%-Time-Tasks-Lost-Waiting-on-IO-" . $time_window;
-                            if (! exists $metric_types{$this_type}) {
-                                $metric_types{$this_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-io',
-                                            'type' => $this_type);
-                                $this_metric{'desc'} = \%desc;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $io_time_lost{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = '%-Time-Tasks-Lost-Waiting-on-IO-' . $time_window;
+                            $sample{'value'} = $io_time_lost{$time_window};
+                            log_sample(0, \%desc, \%no_names, \%sample);
                         }
-
                         for my $time_window (keys %io_time_stalled) {
-                            my $this_type = "%-Time-Tasks-Stalled-Waiting-on-IO-" . $time_window;
-                            if (! exists $metric_types{$this_type}) {
-                                $metric_types{$this_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-io',
-                                            'type' => $this_type);
-                                $this_metric{'desc'} = \%desc;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $io_time_stalled{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = '%-Time-Tasks-Stalled-Waiting-on-IO-' . $time_window;
+                            $sample{'value'} = $io_time_stalled{$time_window};
+                            log_sample(0, \%desc, \%no_names, \%sample);
                         }
                     } elsif ($_ eq '') {
                         $scan_mode = '';
@@ -474,21 +317,13 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler');
                         for my $time_window (keys %cpu_starved) {
-                            my $this_type = "%-Time-Tasks-CPU-Starved-" . $time_window;
-                            if (! exists $metric_types{$this_type}) {
-                                $metric_types{$this_type} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler',
-                                            'type' => $this_type);
-                                $this_metric{'desc'} = \%desc;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
-                            my %this_sample = ( 'value' => $cpu_starved{$time_window}, 'end' => $hms_ms + $ymd_timestamp_ms );
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%this_sample);
+                            $desc{'type'} = '%-Time-Tasks-CPU-Starved-' . $time_window;
+                            $sample{'value'} = $cpu_starved{$time_window};
+                            log_sample(0, \%desc, \%no_names, \%sample);
                         }
-                        $prev_hms_ms = $hms_ms;
                     } elsif ($_ eq '') {
                         $scan_mode = '';
                     }
@@ -500,38 +335,20 @@ for my $log_file (sort readdir($dh)) {
                         my $sec = $3;
                         my $processes_created = $4;
                         my $context_switches = $5;
-
                         $hms_ms = get_hms_ms($hour, $min, $sec);
                         if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-
-                        my $this_type = "Processes-created-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-tasks',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %pc_sample = ( 'value' => $processes_created, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%pc_sample);
-
-                        $this_type = "Context-switches-sec";
-                        if (! exists $metric_types{$this_type}) {
-                            $metric_types{$this_type} = scalar @sysstat_metrics;
-                            my %this_metric;
-                            my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler',
-                                        'type' => $this_type);
-                            $this_metric{'desc'} = \%desc;
-                            push(@sysstat_metrics, \%this_metric);
-                        }
-                        my %cs_sample = ( 'value' => $context_switches, 'end' => $hms_ms + $ymd_timestamp_ms );
-                        push(@{ $sysstat_metrics[$metric_types{$this_type}]{'data'}}, \%cs_sample);
-
-                        $prev_hms_ms = $hms_ms;
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-tasks');
+                        $desc{'type'} = 'Processes-created-sec';
+                        $sample{'value'} = $processes_created;
+                        log_sample(0, \%desc, \%no_names, \%sample);
+                        $desc{'type'} = 'Context-switches-sec';
+                        $desc{'source'} = 'sar-scheduler';
+                        $sample{'value'} = $context_switches;
+                        log_sample(0, \%desc, \%no_names, \%sample);
                     } elsif ($_ eq '') {
                         $scan_mode = '';
                     }
@@ -551,39 +368,30 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
+                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %desc = ('class' => 'throughput', 'source' => 'sar-net');
+                        $desc{'type'} = 'L2-Gbps';
                         for my $direction ('rx', 'tx') {
-                            my $this_type = 'L2-Gbps';
-                            my $this_name = $dev . '-' . $direction;
-                            if (! exists $metric_types{$this_type}{$this_name}) {
-                                # Once defined use this to remeber which index it uses in the @sysstat_metrics array.
-                                $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
-                                my %this_metric;
-                                my %desc = ('class' => 'throughput', 'source' => 'sar-net',
-                                            'type' => $this_type);
-                                my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
-                                $this_metric{'desc'} = \%desc;
-                                $this_metric{'names'} = \%names;
-                                push(@sysstat_metrics, \%this_metric);
-                            }
+                            my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
                             my $value;
                             if ($direction eq 'rx') {
                                 $value = $rxkB / 1000000 * 8;
                             } else {
                                 $value = $txkB / 1000000 * 8;
                             }
-                            my %this_sample = ( 'value' => $value, 'end' => $hms_ms + $ymd_timestamp_ms);
-                            push(@{ $sysstat_metrics[$metric_types{$this_type}{$this_name}]{'data'}}, \%this_sample);
+                            $sample{'value'} = $value;
+                            log_sample(0, \%desc, \%names, \%sample);
                         }
-                        $prev_hms_ms = $hms_ms;
                     } elsif ($_ eq '') {
                         $scan_mode = '';
                     }
                 }
+            $prev_hms_ms = $hms_ms;
             }
         }
         close($log_fh);
     } elsif (($log_file =~ /^mpstat.json$/) ||
-	     ($log_file =~ /^mpstat.json.xz$/)) {
+         ($log_file =~ /^mpstat.json.xz$/)) {
         my $cpu_topo_ref = build_cpu_topology("sys/devices/system/cpu");
         my $json_ref = get_json_file($log_file);
         my %mpstat = %$json_ref;
@@ -605,35 +413,22 @@ for my $log_file (sort readdir($dh)) {
                                 # hour-minute-second is lower than last reading so one day has passed
                                 $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                             }
+                            my %sample = ('end' => $ymd_timestamp_ms);
+                            my %desc = ('class' => 'throughput', 'source' => 'mpstat');
                             for my $cpu_entry (@{ $$stat{'cpu-load'} }) {
                                 if ($$cpu_entry{'cpu'} eq "all") {
                                     next;
                                 }
                                 (my $package, my $die, my $core, my $thread) = get_cpu_topology($$cpu_entry{'cpu'}, $cpu_topo_ref);
                                 for my $cpu_type (grep(!/^cpu?/, (keys %{ $cpu_entry }))) {
-                                    my $this_type;
+                                    my %names = ('package' => $package, 'die' => $die, 'core' => $core, 'thread' => $thread, 'num' => $$cpu_entry{'cpu'}, 'type' => $cpu_type);
                                     if ($cpu_type eq "idle" or $cpu_type eq "iowait" or $cpu_type eq "steal") {
-                                        $this_type = 'NonBusy-CPU';
+                                        $desc{'type'} = 'NonBusy-CPU';
                                     } else {
-                                        $this_type = 'Busy-CPU';
+                                        $desc{'type'} = 'Busy-CPU';
                                     }
-                                    my $this_name = $package . '-' . $die . '-' . $core . '-' . $thread . '-' . $$cpu_entry{'cpu'} . '-' . $cpu_type;
-                                    if (! exists $metric_types{$this_type}{$this_name}) {
-                                        # Once defined use this to remeber which index it uses in the @sysstat_metrics array.
-                                        # We need this index later to include the metric_data
-                                        $metric_types{$this_type}{$this_name} = scalar @sysstat_metrics;
-                                        my %this_metric;
-                                        my %desc = ('class' => 'throughput', 'source' => 'mpstat',
-                                                    'type' => $this_type);
-                                        my %names = ('package' => $package, 'die' => $die, 'core' => $core, 'thread' => $thread, 'num' => $$cpu_entry{'cpu'}, 'type' => $cpu_type);
-                                        $this_metric{'desc'} = \%desc;
-                                        $this_metric{'names'} = \%names;
-                                        push(@sysstat_metrics, \%this_metric);
-                                    }
-                                    # Convert CPU percent so "whole" CPU units are reported, aka Busy-CPU is 19.6 units and not 1916
-                                    # units (for just over 19 CPUs used, but this usage could be spread out among many more actual CPUs).
-                                    my %this_sample = ( 'value' => $$cpu_entry{$cpu_type} / 100, 'end' => $hms_ms + $ymd_timestamp_ms);
-                                    push(@{ $sysstat_metrics[$metric_types{$this_type}{$this_name}]{'data'}}, \%this_sample);
+                                    $sample{'value'} = $$cpu_entry{$cpu_type} / 100;
+                                    log_sample(0, \%desc, \%names, \%sample);
                                 }
                             }
                         }
@@ -645,9 +440,4 @@ for my $log_file (sort readdir($dh)) {
     }
 }
 closedir $dh;
-if (scalar @sysstat_metrics > 0) {
-    my $coder = JSON::XS->new;
-    my $json_fh = new IO::Compress::Xz "metric-data.json.xz" || die("Could not open file metric-data.json.xz for writing\n");
-    print $json_fh $coder->encode(\@sysstat_metrics);
-    close($json_fh);
-}
+finish_samples();
