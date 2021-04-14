@@ -133,7 +133,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
 
                         $desc{'type'} = 'KB-Paged-in-sec';
@@ -180,7 +180,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
                         $desc{'type'} = 'Pages-swapped-in-sec';
                         $sample{'value'} = $pages_in;
@@ -212,7 +212,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
                         for my $time_window (keys %memory_waiting) {
                             $desc{'type'} = '%-Time-Tasks-Waiting-on-Memory-' . $time_window;
@@ -245,7 +245,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'count', 'source' => 'sar-scheduler');
                         $desc{'type'} = 'Run-Queue-Length';
                         $sample{'value'} = $run_queue_length;
@@ -285,7 +285,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-io');
                         for my $time_window (keys %io_time_lost) {
                             $desc{'type'} = '%-Time-Tasks-Lost-Waiting-on-IO-' . $time_window;
@@ -317,7 +317,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler');
                         for my $time_window (keys %cpu_starved) {
                             $desc{'type'} = '%-Time-Tasks-CPU-Starved-' . $time_window;
@@ -340,7 +340,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-tasks');
                         $desc{'type'} = 'Processes-created-sec';
                         $sample{'value'} = $processes_created;
@@ -368,7 +368,7 @@ for my $log_file (sort readdir($dh)) {
                             # hour-minute-second is lower than last reading so one day has passed
                             $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms);
+                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                         my %desc = ('class' => 'throughput', 'source' => 'sar-net');
                         $desc{'type'} = 'L2-Gbps';
                         for my $direction ('rx', 'tx') {
@@ -413,7 +413,7 @@ for my $log_file (sort readdir($dh)) {
                                 # hour-minute-second is lower than last reading so one day has passed
                                 $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
                             }
-                            my %sample = ('end' => $ymd_timestamp_ms);
+                            my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
                             my %desc = ('class' => 'throughput', 'source' => 'mpstat');
                             for my $cpu_entry (@{ $$stat{'cpu-load'} }) {
                                 if ($$cpu_entry{'cpu'} eq "all") {
