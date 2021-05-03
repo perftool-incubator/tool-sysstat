@@ -66,6 +66,9 @@ sub advance_ymd {
     return ($ymd_timestamp_ms + (1000 * 60 * 60 * 24));
 }
 
+print "sysstat-post-process\n";
+my @pids;
+my @mpstat_pids;
 my @cpu_topology; # store a hash containing package, die, core, and thread ID per element, CPU ID = index
 my %metric_types;
 my %no_names = ();
@@ -73,371 +76,388 @@ opendir(my $dh, ".");
 for my $log_file (sort readdir($dh)) {
     if (($log_file =~ /^sar-stdout.txt$/) ||
     ($log_file =~ /^sar-stdout.txt.xz$/)) {
-        my $netdev_types_ref =  build_netdev_types;
-        my $ymd_timestamp_ms; # Epochtime in milliseconds
-        my $scan_mode = "";
-        my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
-        my $prev_hms_ms;
-        my $log_fh = new IO::Uncompress::UnXz $log_file, Transparent => 1 || die "[ERROR]could not open file " . $log_file;
-        while (<$log_fh>) {
-            chomp;
-            if ($scan_mode eq '') {
-                if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
-                    #Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000)  2020-06-24  _x86_64_    (64 CPU)
-                    my $ymd = $1;
-                    $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
-                } elsif ( /(\d+:\d+:\d+)\s+IFACE\s+rxpck\/s\s+txpck\/s\s+rxkB\/s\s+txkB\/s\s+rxcmp\/s\s+txcmp\/s\s+rxmcst\/s\s+%ifutil$/ ) {
-                    #22:28:54        IFACE   rxpck/s   txpck/s    rxkB/s    txkB/s   rxcmp/s   txcmp/s  rxmcst/s   %ifutil
-                    $scan_mode = "net";
-                } elsif ( /(\d+:\d+:\d+)\s+proc\/s\s+cswch\/s$/ ) {
-                    #15:41:30       proc/s   cswch/s
-                    $scan_mode = "task";
-                } elsif ( /(\d+:\d+:\d+)\s+%scpu-10\s+%scpu-60\s+%scpu-300\s+%scpu$/ ) {
-                    #15:20:52     %scpu-10  %scpu-60 %scpu-300     %scpu
-                    $scan_mode = "cpu-starved";
-                } elsif ( /(\d+:\d+:\d+)\s+%sio-10\s+%sio-60\s+%sio-300\s+%sio\s+%fio-10\s+%fio-60\s+%fio-300\s+%fio$/ ) {
-                    #16:19:33      %sio-10   %sio-60  %sio-300      %sio   %fio-10   %fio-60  %fio-300      %fio
-                    $scan_mode = "io-starved";
-                } elsif ( /(\d+:\d+:\d+)\s+runq-sz\s+plist-sz\s+ldavg-1\s+ldavg-5\s+ldavg-15\s+blocked$/ ) {
-                    #16:19:36      runq-sz  plist-sz   ldavg-1   ldavg-5  ldavg-15   blocked
-                    $scan_mode = "task-lists";
-                } elsif ( /(\d+:\d+:\d+)\s+%smem-10\s+%smem-60\s+%smem-300\s+%smem\s+%fmem-10\s+%fmem-60\s+%fmem-300\s+%fmem$/ ) {
-                    #16:19:33     %smem-10  %smem-60 %smem-300     %smem  %fmem-10  %fmem-60 %fmem-300     %fmem
-                    $scan_mode = "memory-starved";
-                } elsif ( /(\d+:\d+:\d+)\s+pswpin\/s\s+pswpout\/s$/ ) {
-                    #16:19:36     pswpin/s pswpout/s
-                    $scan_mode = "swapping";
-                } elsif ( /(\d+:\d+:\d+)\s+pgpgin\/s\s+pgpgout\/s\s+fault\/s\s+majflt\/s\s+pgfree\/s\s+pgscank\/s\s+pgscand\/s\s+pgsteal\/s\s+%vmeff$/ ) {
-                    #21:26:11     pgpgin/s pgpgout/s   fault/s  majflt/s  pgfree/s pgscank/s pgscand/s pgsteal/s    %vmeff
-                    $scan_mode = "paging";
-                }
+        my @sources = (qw(sar-mem sar-scheduler sar-io sar-tasks sar-net));
+        for my $source (@sources) {
+            my %desc = ('class' => 'throughput', 'source' => $source);
+            if (my $pid = fork) {
+                push(@pids, $pid);
             } else {
-                if ($scan_mode eq "paging") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
-                        #21:26:14         0.00    385.67  15381.00      0.00   9596.00      0.00      0.00      0.00      0.00
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my $kb_paged_in = $4;
-                        my $kb_paged_out = $5;
-                        my %faults;
-                        $faults{'minor'} = $6 - $7;
-                        $faults{'major'} = $7;
-                        my $freed_pages = $8;
-                        my $kswapd_scanned_pages = $9;
-                        my $scanned_pages = $10;
-                        my $reclaimed_pages = $11;
-                        my $vm_efficiency = $12;
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
-
-                        $desc{'type'} = 'KB-Paged-in-sec';
-                        $sample{'value'} = $kb_paged_in;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'KB-Paged-out-sec';
-                        $sample{'value'} = $kb_paged_out;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        for my $fault_type (keys %faults) {
-                            $desc{'type'} = 'Page-faults-sec';
-                            my %names = ('type' => $fault_type);
-                            $sample{'value'} = $faults{$fault_type};
-                            log_sample(0, \%desc, \%names, \%sample);
-                        }
-                        $desc{'type'} = 'Pages-freed-sec';
-                        $sample{'value'} = $freed_pages;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'kswapd-scanned-pages-sec';
-                        $sample{'value'} = $kswapd_scanned_pages;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'scanned-pages-sec';
-                        $sample{'value'} = $scanned_pages;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'reclaimed-pages-sec';
-                        $sample{'value'} = $reclaimed_pages;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'VM-Efficiency';
-                        $sample{'value'} = $vm_efficiency;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
+                printf "Post-processing for %s started\n", $source;
+                my $netdev_types_ref =  build_netdev_types;
+                my $ymd_timestamp_ms; # Epochtime in milliseconds
+                my $scan_mode = "";
+                my $hms_ms; # Number of milliseconds for only today's hour-minute-seconds (NOT since epoch, since 12:00 AM)
+                my $prev_hms_ms;
+                my $log_fh = new IO::Uncompress::UnXz $log_file, Transparent => 1 || die "[ERROR]could not open file " . $log_file;
+                while (<$log_fh>) {
+                    chomp;
+                    if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
+                        #Linux 4.18.0-147.8.1.el8_1.x86_64 (worker000)  2020-06-24  _x86_64_    (64 CPU)
+                        my $ymd = $1;
+                        $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
                     }
-                } elsif ($scan_mode eq "swapping") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
-                        #16:19:39         0.00      0.00
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my $pages_in = $4;
-                        my $pages_out = $5;
-
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                    if ($source eq "sar-mem") {
+                        if ( /(\d+:\d+:\d+)\s+pgpgin\/s\s+pgpgout\/s\s+fault\/s\s+majflt\/s\s+pgfree\/s\s+pgscank\/s\s+pgscand\/s\s+pgsteal\/s\s+%vmeff$/ ) {
+                            #21:26:11     pgpgin/s pgpgout/s   fault/s  majflt/s  pgfree/s pgscank/s pgscand/s pgsteal/s    %vmeff
+                            $scan_mode = "paging";
+                        } elsif ( /(\d+:\d+:\d+)\s+pswpin\/s\s+pswpout\/s$/ ) {
+                            #16:19:36     pswpin/s pswpout/s
+                            $scan_mode = "swapping";
+                        } elsif ( /(\d+:\d+:\d+)\s+%smem-10\s+%smem-60\s+%smem-300\s+%smem\s+%fmem-10\s+%fmem-60\s+%fmem-300\s+%fmem$/ ) {
+                            #16:19:33     %smem-10  %smem-60 %smem-300     %smem  %fmem-10  %fmem-60 %fmem-300     %fmem
+                            $scan_mode = "memory-starved";
                         }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
-                        $desc{'type'} = 'Pages-swapped-in-sec';
-                        $sample{'value'} = $pages_in;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'Pages-swapped-out-sec';
-                        $sample{'value'} = $pages_out;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
-                    }
-                } elsif ($scan_mode eq "memory-starved") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
-                        #16:19:36         0.00      0.00      0.00      0.00      0.00      0.00      0.00      0.00
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my %memory_waiting;
-                        $memory_waiting{'010s'} = $4;
-                        $memory_waiting{'060s'} = $5;
-                        $memory_waiting{'300s'} = $6;
-                        $memory_waiting{'last_interval'} = $7;
-                        my %memory_stalled;
-                        $memory_stalled{'010s'} = $8;
-                        $memory_stalled{'060s'} = $9;
-                        $memory_stalled{'300s'} = $10;
-                        $memory_stalled{'last_interval'} = $11;
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-mem');
-                        for my $time_window (keys %memory_waiting) {
-                            $desc{'type'} = '%-Time-Tasks-Waiting-on-Memory-' . $time_window;
-                            $sample{'value'} = $memory_waiting{$time_window};
-                            log_sample(0, \%desc, \%no_names, \%sample);
-                        }
-                        for my $time_window (keys %memory_stalled) {
-                            $desc{'type'} = '%-Time-Non-Idle-Tasks-Stalled-on-Memory-' . $time_window;
-                            $sample{'value'} = $memory_stalled{$time_window};
-                            log_sample(0, \%desc, \%no_names, \%sample);
-                        }
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
-                    }
-                } elsif ($scan_mode eq "task-lists") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+)\s+(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+)$/ ) {
-                        #16:19:39            1       551      0.50      0.13      0.04         0
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my $run_queue_length = $4;
-                        my $process_list_size = $5;
-                        my %load_average;
-                        $load_average{'01m'} = $6;
-                        $load_average{'05m'} = $7;
-                        $load_average{'15m'} = $8;
-                        my $io_blocked_tasks = $9;
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'count', 'source' => 'sar-scheduler');
-                        $desc{'type'} = 'Run-Queue-Length';
-                        $sample{'value'} = $run_queue_length;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'Process-List-Size';
-                        $sample{'value'} = $process_list_size;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        for my $time_window (keys %load_average) {
-                            $desc{'type'} = 'Load-Average-' . $time_window;
-                            $sample{'value'} = $load_average{$time_window};
-                            log_sample(0, \%desc, \%no_names, \%sample);
-                        }
-                        $desc{'type'} = 'IO-Blocked-Tasks';
-                        $sample{'value'} = $io_blocked_tasks;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
-                    }
-                } elsif ($scan_mode eq "io-starved") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
-                        #16:19:36         0.13      0.17      0.04      0.01      0.10      0.12      0.03      0.00
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my %io_time_lost;
-                        $io_time_lost{'010s'} = $4;
-                        $io_time_lost{'060s'} = $5;
-                        $io_time_lost{'300s'} = $6;
-                        $io_time_lost{'last_interval'} = $7;
-                        my %io_time_stalled;
-                        $io_time_stalled{'010s'} = $8;
-                        $io_time_stalled{'060s'} = $9;
-                        $io_time_stalled{'300s'} = $10;
-                        $io_time_stalled{'last_interval'} = $11;
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-io');
-                        for my $time_window (keys %io_time_lost) {
-                            $desc{'type'} = '%-Time-Tasks-Lost-Waiting-on-IO-' . $time_window;
-                            $sample{'value'} = $io_time_lost{$time_window};
-                            log_sample(0, \%desc, \%no_names, \%sample);
-                        }
-                        for my $time_window (keys %io_time_stalled) {
-                            $desc{'type'} = '%-Time-Tasks-Stalled-Waiting-on-IO-' . $time_window;
-                            $sample{'value'} = $io_time_stalled{$time_window};
-                            log_sample(0, \%desc, \%no_names, \%sample);
-                        }
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
-                    }
-                } elsif ($scan_mode eq "cpu-starved") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
-                        #15:20:55         7.12      2.37      2.33      5.14
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my %cpu_starved;
-                        $cpu_starved{'010s'} = $4;
-                        $cpu_starved{'060s'} = $5;
-                        $cpu_starved{'300s'} = $6;
-                        $cpu_starved{'last_interval'} = $7;
-
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-scheduler');
-                        for my $time_window (keys %cpu_starved) {
-                            $desc{'type'} = '%-Time-Tasks-CPU-Starved-' . $time_window;
-                            $sample{'value'} = $cpu_starved{$time_window};
-                            log_sample(0, \%desc, \%no_names, \%sample);
-                        }
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
-                    }
-                } elsif ($scan_mode eq "task") {
-                    if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
-                        #15:41:33       137.67   2529.67
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my $processes_created = $4;
-                        my $context_switches = $5;
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-tasks');
-                        $desc{'type'} = 'Processes-created-sec';
-                        $sample{'value'} = $processes_created;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                        $desc{'type'} = 'Context-switches-sec';
-                        $desc{'source'} = 'sar-scheduler';
-                        $sample{'value'} = $context_switches;
-                        log_sample(0, \%desc, \%no_names, \%sample);
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
-                    }
-                } elsif ($scan_mode eq "net") {
-                    if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
-                        #22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
-                        my $hour = $1;
-                        my $min = $2;
-                        my $sec = $3;
-                        my $dev = $4;
-                        my $rxpack = $5;
-                        my $txpack = $6;
-                        my $rxkB = $7;
-                        my $txkB = $8;
-                        $hms_ms = get_hms_ms($hour, $min, $sec);
-                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                            # hour-minute-second is lower than last reading so one day has passed
-                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                        }
-                        my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                        my %desc = ('class' => 'throughput', 'source' => 'sar-net');
-                        $desc{'type'} = 'L2-Gbps';
-                        for my $direction ('rx', 'tx') {
-                            my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
-                            my $value;
-                            if ($direction eq 'rx') {
-                                $value = $rxkB / 1000000 * 8;
-                            } else {
-                                $value = $txkB / 1000000 * 8;
+                        elsif ($scan_mode eq "paging") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                                #21:26:14         0.00    385.67  15381.00      0.00   9596.00      0.00      0.00      0.00      0.00
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my $kb_paged_in = $4;
+                                my $kb_paged_out = $5;
+                                my %faults;
+                                $faults{'minor'} = $6 - $7;
+                                $faults{'major'} = $7;
+                                my $freed_pages = $8;
+                                my $kswapd_scanned_pages = $9;
+                                my $scanned_pages = $10;
+                                my $reclaimed_pages = $11;
+                                my $vm_efficiency = $12;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+        
+                                $desc{'type'} = 'KB-Paged-in-sec';
+                                $sample{'value'} = $kb_paged_in;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'KB-Paged-out-sec';
+                                $sample{'value'} = $kb_paged_out;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                for my $fault_type (keys %faults) {
+                                    $desc{'type'} = 'Page-faults-sec';
+                                    my %names = ('type' => $fault_type);
+                                    $sample{'value'} = $faults{$fault_type};
+                                    log_sample($source, \%desc, \%names, \%sample);
+                                }
+                                $desc{'type'} = 'Pages-freed-sec';
+                                $sample{'value'} = $freed_pages;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'kswapd-scanned-pages-sec';
+                                $sample{'value'} = $kswapd_scanned_pages;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'scanned-pages-sec';
+                                $sample{'value'} = $scanned_pages;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'reclaimed-pages-sec';
+                                $sample{'value'} = $reclaimed_pages;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'VM-Efficiency';
+                                $sample{'value'} = $vm_efficiency;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
                             }
-                            $sample{'value'} = $value;
-                            log_sample(0, \%desc, \%names, \%sample);
+                        } elsif ($scan_mode eq "swapping") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                                #16:19:39         0.00      0.00
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my $pages_in = $4;
+                                my $pages_out = $5;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                $desc{'type'} = 'Pages-swapped-in-sec';
+                                $sample{'value'} = $pages_in;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'Pages-swapped-out-sec';
+                                $sample{'value'} = $pages_out;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        } elsif ($scan_mode eq "memory-starved") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                                #16:19:36         0.00      0.00      0.00      0.00      0.00      0.00      0.00      0.00
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my %memory_waiting;
+                                $memory_waiting{'010s'} = $4;
+                                $memory_waiting{'060s'} = $5;
+                                $memory_waiting{'300s'} = $6;
+                                $memory_waiting{'last_interval'} = $7;
+                                my %memory_stalled;
+                                $memory_stalled{'010s'} = $8;
+                                $memory_stalled{'060s'} = $9;
+                                $memory_stalled{'300s'} = $10;
+                                $memory_stalled{'last_interval'} = $11;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                for my $time_window (keys %memory_waiting) {
+                                    $desc{'type'} = '%-Time-Tasks-Waiting-on-Memory-' . $time_window;
+                                    $sample{'value'} = $memory_waiting{$time_window};
+                                    log_sample($source, \%desc, \%no_names, \%sample);
+                                }
+                                for my $time_window (keys %memory_stalled) {
+                                    $desc{'type'} = '%-Time-Non-Idle-Tasks-Stalled-on-Memory-' . $time_window;
+                                    $sample{'value'} = $memory_stalled{$time_window};
+                                    log_sample($source, \%desc, \%no_names, \%sample);
+                                }
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
                         }
-                    } elsif ($_ eq '') {
-                        $scan_mode = '';
+                    } elsif ($source eq "sar-io") {
+                        if ( /(\d+:\d+:\d+)\s+%sio-10\s+%sio-60\s+%sio-300\s+%sio\s+%fio-10\s+%fio-60\s+%fio-300\s+%fio$/ ) {
+                            #16:19:33      %sio-10   %sio-60  %sio-300      %sio   %fio-10   %fio-60  %fio-300      %fio
+                            $scan_mode = "io-starved";
+                        } elsif ($scan_mode eq "io-starved") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                                #16:19:36         0.13      0.17      0.04      0.01      0.10      0.12      0.03      0.00
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my %io_time_lost;
+                                $io_time_lost{'010s'} = $4;
+                                $io_time_lost{'060s'} = $5;
+                                $io_time_lost{'300s'} = $6;
+                                $io_time_lost{'last_interval'} = $7;
+                                my %io_time_stalled;
+                                $io_time_stalled{'010s'} = $8;
+                                $io_time_stalled{'060s'} = $9;
+                                $io_time_stalled{'300s'} = $10;
+                                $io_time_stalled{'last_interval'} = $11;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                for my $time_window (keys %io_time_lost) {
+                                    $desc{'type'} = '%-Time-Tasks-Lost-Waiting-on-IO-' . $time_window;
+                                    $sample{'value'} = $io_time_lost{$time_window};
+                                    log_sample($source, \%desc, \%no_names, \%sample);
+                                }
+                                for my $time_window (keys %io_time_stalled) {
+                                    $desc{'type'} = '%-Time-Tasks-Stalled-Waiting-on-IO-' . $time_window;
+                                    $sample{'value'} = $io_time_stalled{$time_window};
+                                    log_sample($source, \%desc, \%no_names, \%sample);
+                                }
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        }
+                    } elsif ($source eq "sar-tasks") {
+                        if ( /(\d+:\d+:\d+)\s+proc\/s\s+cswch\/s$/ ) {
+                            #15:41:30       proc/s   cswch/s
+                            $scan_mode = "task";
+                        } elsif ($scan_mode eq "task") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                                #15:41:33       137.67   2529.67
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my $processes_created = $4;
+                                my $context_switches = $5;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                $desc{'type'} = 'Processes-created-sec';
+                                $sample{'value'} = $processes_created;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'Context-switches-sec';
+                                $desc{'source'} = 'sar-scheduler';
+                                $sample{'value'} = $context_switches;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        }
+                    } elsif ($source eq "sar-scheduler") {
+                        if ( /(\d+:\d+:\d+)\s+%scpu-10\s+%scpu-60\s+%scpu-300\s+%scpu$/ ) {
+                            #15:20:52     %scpu-10  %scpu-60 %scpu-300     %scpu
+                            $scan_mode = "cpu-starved";
+                        } elsif ( /(\d+:\d+:\d+)\s+runq-sz\s+plist-sz\s+ldavg-1\s+ldavg-5\s+ldavg-15\s+blocked$/ ) {
+                            #16:19:36      runq-sz  plist-sz   ldavg-1   ldavg-5  ldavg-15   blocked
+                            $scan_mode = "task-lists";
+                        } elsif ($scan_mode eq "cpu-starved") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/ ) {
+                                #15:20:55         7.12      2.37      2.33      5.14
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my %cpu_starved;
+                                $cpu_starved{'010s'} = $4;
+                                $cpu_starved{'060s'} = $5;
+                                $cpu_starved{'300s'} = $6;
+                                $cpu_starved{'last_interval'} = $7;
+        
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                for my $time_window (keys %cpu_starved) {
+                                    $desc{'type'} = '%-Time-Tasks-CPU-Starved-' . $time_window;
+                                    $sample{'value'} = $cpu_starved{$time_window};
+                                    log_sample($source, \%desc, \%no_names, \%sample);
+                                }
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        } elsif ($scan_mode eq "task-lists") {
+                            if ( /(\d+):(\d+):(\d+)\s+(\d+)\s+(\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+)$/ ) {
+                                #16:19:39            1       551      0.50      0.13      0.04         0
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my $run_queue_length = $4;
+                                my $process_list_size = $5;
+                                my %load_average;
+                                $load_average{'01m'} = $6;
+                                $load_average{'05m'} = $7;
+                                $load_average{'15m'} = $8;
+                                my $io_blocked_tasks = $9;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                $desc{'type'} = 'Run-Queue-Length';
+                                $sample{'value'} = $run_queue_length;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                $desc{'type'} = 'Process-List-Size';
+                                $sample{'value'} = $process_list_size;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                                for my $time_window (keys %load_average) {
+                                    $desc{'type'} = 'Load-Average-' . $time_window;
+                                    $sample{'value'} = $load_average{$time_window};
+                                    log_sample($source, \%desc, \%no_names, \%sample);
+                                }
+                                $desc{'type'} = 'IO-Blocked-Tasks';
+                                $sample{'value'} = $io_blocked_tasks;
+                                log_sample($source, \%desc, \%no_names, \%sample);
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        }
+                    } elsif ($source eq "sar-net") {
+                        if ( /(\d+:\d+:\d+)\s+IFACE\s+rxpck\/s\s+txpck\/s\s+rxkB\/s\s+txkB\/s\s+rxcmp\/s\s+txcmp\/s\s+rxmcst\/s\s+%ifutil$/ ) {
+                         #22:28:54        IFACE   rxpck/s   txpck/s    rxkB/s    txkB/s   rxcmp/s   txcmp/s  rxmcst/s   %ifutil
+                         $scan_mode = "net";
+                        } elsif ($scan_mode eq "net") {
+                            if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
+                                #22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my $dev = $4;
+                                my $rxpack = $5;
+                                my $txpack = $6;
+                                my $rxkB = $7;
+                                my $txkB = $8;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                $desc{'type'} = 'L2-Gbps';
+                                for my $direction ('rx', 'tx') {
+                                    my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
+                                    my $value;
+                                    if ($direction eq 'rx') {
+                                        $value = $rxkB / 1000000 * 8;
+                                    } else {
+                                        $value = $txkB / 1000000 * 8;
+                                    }
+                                    $sample{'value'} = $value;
+                                    log_sample($source, \%desc, \%names, \%sample);
+                                }
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        }
                     }
+                    $prev_hms_ms = $hms_ms;
                 }
-            $prev_hms_ms = $hms_ms;
+                close($log_fh);
+                finish_samples;
+                printf "Post-processing for %s complete\n", $source;
+                exit;
             }
         }
-        close($log_fh);
     } elsif (($log_file =~ /^mpstat.json$/) ||
          ($log_file =~ /^mpstat.json.xz$/)) {
         my $cpu_topo_ref = build_cpu_topology("sys/devices/system/cpu");
-        my $json_ref = get_json_file($log_file);
-        my %mpstat = %$json_ref;
-        my $ymd_timestamp_ms; # Epochtime in milliseconds
-        if (exists $mpstat{'sysstat'} and exists $mpstat{'sysstat'}{'hosts'} and exists $mpstat{'sysstat'}{'hosts'}[0]) {
-            if (exists $mpstat{'sysstat'}{'hosts'}[0]{'date'}) {
-                $ymd_timestamp_ms = `date +%s%N -d $mpstat{'sysstat'}{'hosts'}[0]{'date'} -u` / 1000000;
-                if (exists $mpstat{'sysstat'}{'hosts'}[0]{'statistics'}) {
-                    my $hms_ms;
-                    my $prev_hms_ms;
-                    for my $stat (@{ $mpstat{'sysstat'}{'hosts'}[0]{'statistics'} }) {
-                        my $timestamp = $$stat{'timestamp'};
-                        if ($timestamp =~ /(\d+):(\d+):(\d+)/) {
-                            my $hour = $1;
-                            my $min = $2;
-                            my $sec = $3;
-                            $hms_ms = get_hms_ms($hour, $min, $sec);
-                            if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
-                                # hour-minute-second is lower than last reading so one day has passed
-                                $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
-                            }
-                            my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
-                            my %desc = ('class' => 'throughput', 'source' => 'mpstat');
-                            for my $cpu_entry (@{ $$stat{'cpu-load'} }) {
-                                if ($$cpu_entry{'cpu'} eq "all") {
-                                    next;
+        my $num_mpstat_forks = 8;
+            for (my $i = 0; $i < $num_mpstat_forks; $i++) {
+            if (my $pid = fork) {
+                push(@mpstat_pids, $pid);
+            } else {
+                printf "Post-processing for mpstat-%d started\n", $i;
+                my $log_fh = new IO::Uncompress::UnXz $log_file, Transparent => 1 || die "[ERROR]could not open file " . $log_file;
+                my $ymd_timestamp_ms; # Epochtime in milliseconds
+                my %desc = ('class' => 'throughput', 'source' => 'mpstat');
+                my %sample;
+                my $hms_ms;
+                my $prev_hms_ms;
+                my $coder = JSON::XS->new;
+                while (<$log_fh>) {
+                    chomp;
+                    if (/"date": "(\d+-\d+-\d+)",/) {
+                        #      "date": "2021-04-26",
+                        my $ymd = $1;
+                        $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
+                    } elsif (/"timestamp": "(\d+):(\d+):(\d+)",/) {
+                        $hms_ms = get_hms_ms($1, $2, $3);
+                        if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                            # hour-minute-second is lower than last reading so one day has passed
+                            $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                        }
+                        $sample{'end'} = $ymd_timestamp_ms + $hms_ms;
+                    } elsif ( /(\{"cpu": "\d+".*\}),{0,1}$/ ) {
+                        my $cpu_entry = $coder->decode($1) || die "Could not read JSON";
+                        if ($$cpu_entry{'cpu'} % $num_mpstat_forks == $i) {
+                            (my $package, my $die, my $core, my $thread) = get_cpu_topology($$cpu_entry{'cpu'}, $cpu_topo_ref);
+                            for my $cpu_type (grep(!/^cpu?/, (keys %{ $cpu_entry } ))) {
+                                my %names = ('package' => $package, 'die' => $die, 'core' => $core, 'thread' => $thread, 'num' => $$cpu_entry{'cpu'}, 'type' => $cpu_type);
+                                if ($cpu_type eq "idle" or $cpu_type eq "iowait" or $cpu_type eq "steal") {
+                                    $desc{'type'} = 'NonBusy-CPU';
+                                } else {
+                                    $desc{'type'} = 'Busy-CPU';
                                 }
-                                (my $package, my $die, my $core, my $thread) = get_cpu_topology($$cpu_entry{'cpu'}, $cpu_topo_ref);
-                                for my $cpu_type (grep(!/^cpu?/, (keys %{ $cpu_entry }))) {
-                                    my %names = ('package' => $package, 'die' => $die, 'core' => $core, 'thread' => $thread, 'num' => $$cpu_entry{'cpu'}, 'type' => $cpu_type);
-                                    if ($cpu_type eq "idle" or $cpu_type eq "iowait" or $cpu_type eq "steal") {
-                                        $desc{'type'} = 'NonBusy-CPU';
-                                    } else {
-                                        $desc{'type'} = 'Busy-CPU';
-                                    }
-                                    $sample{'value'} = $$cpu_entry{$cpu_type} / 100;
-                                    log_sample(0, \%desc, \%names, \%sample);
-                                }
+                                $sample{'value'} = $$cpu_entry{$cpu_type} / 100;
+                                log_sample("mpstat-" . $i, \%desc, \%names, \%sample);
                             }
                         }
-                        $prev_hms_ms = $hms_ms;
                     }
+                $prev_hms_ms = $hms_ms;
                 }
+            finish_samples;
+            printf "Post-processing for mpstat-%d complete\n", $i;
+            exit;
             }
         }
     }
 }
+printf "Waiting for %d post-processing jobs to complete\n", scalar @pids + @mpstat_pids;
+while (wait() > -1) {}
 closedir $dh;
-finish_samples();
