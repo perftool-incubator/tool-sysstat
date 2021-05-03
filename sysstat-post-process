@@ -281,7 +281,6 @@ for my $log_file (sort readdir($dh)) {
                                 $sample{'value'} = $processes_created;
                                 log_sample($source, \%desc, \%no_names, \%sample);
                                 $desc{'type'} = 'Context-switches-sec';
-                                $desc{'source'} = 'sar-scheduler';
                                 $sample{'value'} = $context_switches;
                                 log_sample($source, \%desc, \%no_names, \%sample);
                             } elsif ($_ eq '') {
