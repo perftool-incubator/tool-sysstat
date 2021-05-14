@@ -362,7 +362,7 @@ for my $log_file (sort readdir($dh)) {
                          #22:28:54        IFACE   rxpck/s   txpck/s    rxkB/s    txkB/s   rxcmp/s   txcmp/s  rxmcst/s   %ifutil
                          $scan_mode = "net";
                         } elsif ($scan_mode eq "net") {
-                            if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)\s+(\d+\.\d+)\s+(\d+\.\d+\d+)/) {
+                            if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)/) {
                                 #22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
                                 my $hour = $1;
                                 my $min = $2;
@@ -389,6 +389,55 @@ for my $log_file (sort readdir($dh)) {
                                     }
                                     $sample{'value'} = $value;
                                     log_sample($source, \%desc, \%names, \%sample);
+                                }
+                                $desc{'type'} = 'packets-sec';
+                                for my $direction ('rx', 'tx') {
+                                    my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type($dev, $netdev_types_ref));
+                                    my $value;
+                                    if ($direction eq 'rx') {
+                                        $value = $rxpack;
+                                    } else {
+                                        $value = $txpack;
+                                    }
+                                    $sample{'value'} = $value;
+                                    log_sample($source, \%desc, \%names, \%sample);
+                                }
+                            } elsif ($_ eq '') {
+                                $scan_mode = '';
+                            }
+                        }
+                        if (/(\d+:\d+:\d+)\s+IFACE\s+rxerr\/s\s+txerr\/s\s+coll\/s\s+rxdrop\/s\s+txdrop\/s\s+txcarr\/s\s+rxfram\/s\s+rxfifo\/s\s+txfifo\/s$/) {
+                            #15:42:48 IFACE rxerr/s txerr/s coll/s rxdrop/s txdrop/s txcarr/s rxfram/s rxfifo/s txfifo/s
+                            $scan_mode = "net-error";
+                        } elsif ($scan_mode eq "net-error") {
+                            if (/(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)/) {
+                                #22:28:57         eth1      0.00      4.33      0.00      0.40      0.00      0.00      0.00      0.00
+                                #15:42:51 vxlan_sys_4789 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+                                my %networkerrors;
+                                my $hour = $1;
+                                my $min = $2;
+                                my $sec = $3;
+                                my $dev = $4;
+                                $networkerrors{'tx'}{'collision'} = $7;
+                                $networkerrors{'rx'}{'drop'} = $8;
+                                $networkerrors{'tx'}{'drop'} = $9;
+                                $networkerrors{'tx'}{'carrier'} = $10;
+                                $networkerrors{'rx'}{'frame-alignment'} = $11;
+                                $networkerrors{'rx'}{'fifo-overrun'} = $12;
+                                $networkerrors{'tx'}{'fifo-overrun'} = $13;
+                                $hms_ms = get_hms_ms($hour, $min, $sec);
+                                if (defined $prev_hms_ms and $prev_hms_ms > $hms_ms) {
+                                    # hour-minute-second is lower than last reading so one day has passed
+                                    $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+                                }
+                                my %sample = ('end' => $ymd_timestamp_ms + $hms_ms);
+                                $desc{'type'} = 'errors-sec';
+                                foreach my $direction (keys %networkerrors) {    # $direction keys are rx and tx
+                                    foreach my $flavor (keys %{$networkerrors{$direction}}) {    # $flavor keys are collision|drop|frame-alignment|carrier|fifo-overrun
+                                        $sample{'value'} = $networkerrors{$direction}{$flavor};
+                                        my %names = ('dev' => $dev, 'direction' => $direction, 'type' => get_netdev_type( $dev, $netdev_types_ref ), 'error' => $flavor);
+                                        log_sample($source, \%desc, \%names, \%sample);
+                                    }
                                 }
                             } elsif ($_ eq '') {
                                 $scan_mode = '';
