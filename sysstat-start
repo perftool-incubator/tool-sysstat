@@ -73,7 +73,7 @@ for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
             ;;
         iostat)
             echo "Starting iostat"
-            TZ=UTC S_TIME_FORMAT=ISO iostat -o JSON -d -k -x -y $interval >iostat-stdout.txt 2>iostat-stderr.txt &
+            TZ=UTC S_TIME_FORMAT=ISO iostat -xtdkyN -o JSON -p ALL $interval >iostat.json 2>iostat-stderr.txt &
             iostat_pid=$!
             echo "$iostat_pid" >>sysstat-pids.txt
             echo "iostat pid is $iostat_pid"
