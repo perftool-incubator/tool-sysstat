@@ -52,6 +52,14 @@ if [ -e /sys/class/net ]; then
     /bin/ls -1 /sys/class/net | while read netdev; do
         echo "$netdev `readlink /sys/class/net/$netdev`" >>netdev-types.txt
     done
+else
+    echo "WARNING: could not find /sys/class/net"
+fi
+
+if which lsblk > /dev/null; then
+    lsblk --all --bytes --fs --topology --json > lsblk.json
+else
+    echo "WARNING: could not find lsblk"
 fi
 
 /bin/rm -f sysstat-pids.txt
@@ -73,7 +81,7 @@ for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
             ;;
         iostat)
             echo "Starting iostat"
-            TZ=UTC S_TIME_FORMAT=ISO iostat -o JSON -d -k -x -y $interval >iostat-stdout.txt 2>iostat-stderr.txt &
+            TZ=UTC S_TIME_FORMAT=ISO iostat -o JSON -d -k -x -y -N -p ALL -t $interval >iostat.json 2>iostat-stderr.txt &
             iostat_pid=$!
             echo "$iostat_pid" >>sysstat-pids.txt
             echo "iostat pid is $iostat_pid"
