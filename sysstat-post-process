@@ -8,7 +8,6 @@ use JSON::XS;
 use JSON::Validator;
 use Data::Dumper;
 use Time::Piece;
-use Switch;
 
 BEGIN {
     if (!(exists $ENV{'TOOLBOX_HOME'} && -d "$ENV{'TOOLBOX_HOME'}/perl")) {
@@ -506,50 +505,62 @@ for my $log_file (sort readdir($dh)) {
             exit;
             }
         }
-    } elsif ($log_file =~ /^iostat.json$/) {
-        my %sample;
-        my $log_fh = $log_file;
-        open(TMP,"$log_fh") || die "Could not open $log_fh\n";
-
-        while (<TMP>) {
-           chop(my $aline = $_);
-           my %iosample;
-           if ((my $timestamp) = $aline =~ m/\s*"timestamp"\:\s*"(.*)".*?/) {
-              my $time_object = Time::Piece->strptime($timestamp,'%Y-%m-%dT%T%z');
-              %sample = ('end' => ($time_object->epoch * 1000));
-           }
-           if ((my $deviceline) = $aline =~ m/\s+({.*disk_device.*}).*?/) {
-              my $iosample = decode_json($deviceline);
-              my %desc;
-              foreach my $field_name (keys %$iosample) {
-                  $desc{'source'} = "iostat";
-                  $desc{'type'} = $field_name;       # log all fields even if iostat output changes
-                  $sample{'value'} = $iosample->{$field_name};
-                  my %names = ('dev' => $iosample->{disk_device});
-                  switch($field_name) {
-                      case "wrqm/s"   {$desc{'class'} = "throughput"; $desc{'cmd'} = "write"; $desc{'type'} = "operations-merged-sec";}
-                      case "rrqm/s"   {$desc{'class'} = "throughput"; $desc{'cmd'} = "read";  $desc{'type'} = "operations-merged-sec";}
-                      case "w/s"      {$desc{'class'} = "throughput"; $desc{'cmd'} = "write"; $desc{'type'} = "operations-sec";}
-                      case "r/s"      {$desc{'class'} = "throughput"; $desc{'cmd'} = "read";  $desc{'type'} = "operations-sec";}
-                      case "wkB/s"    {$desc{'class'} = "throughput"; $desc{'cmd'} = "write"; $desc{'type'} = "kb-sec";}
-                      case "rkB/s"    {$desc{'class'} = "throughput"; $desc{'cmd'} = "read";  $desc{'type'} = "kb-sec";}
-                      case "wrqm"     {$desc{'class'} = "count";      $desc{'cmd'} = "write"; $desc{'type'} = "operations-percent-merged";}
-                      case "rrqm"     {$desc{'class'} = "count";      $desc{'cmd'} = "read";  $desc{'type'} = "operations-percent-merged";}
-                      case "w_await"  {$desc{'class'} = "count";      $desc{'cmd'} = "write"; $desc{'type'} = "avg-service-time-ms";}
-                      case "r_await"  {$desc{'class'} = "count";      $desc{'cmd'} = "read";  $desc{'type'} = "avg-service-time-ms";}
-                      case "wareq-sz" {$desc{'class'} = "count";      $desc{'cmd'} = "write"; $desc{'type'} = "avg-req-size-kb";}
-                      case "rareq-sz" {$desc{'class'} = "count";      $desc{'cmd'} = "read";  $desc{'type'} = "avg-req-size-kb";}
-                      case "aqu-sz"   {$desc{'class'} = "count";                              $desc{'type'} = "avg-queue-len";}
-                      case "util"     {$desc{'class'} = "count";                              $desc{'type'} = "percent-utilization";}
-                      case "svctm"    {$desc{'class'} = "count";                              $desc{'type'} = "DEPRECATED-avg-req-svc-time";}
-                  }
-              log_sample("iostat", \%desc, \%names, \%sample) unless ($field_name eq "disk_device"); # disk name has no numeric data for $sample{'value'} skip logging
-              }
-           }
+    } elsif ($log_file =~ /^iostat.json(\.xz){0,1}$/) {
+        if (my $pid = fork) {
+                push(@pids, $pid);
+        } else {
+            printf "Post-processing for iostat started\n";
+            (my $rc, my $fh) = open_read_text_file($log_file);
+            if ($rc > 0 or ! defined $fh) {
+                printf "sysstat-post-process: open_read_text_file() failed on %s\n", $log_file;
+                exit 0;
+            }
+            my $time_ms;
+            while (<$fh>) {
+                chomp;
+                if (m/\s*"timestamp"\:\s*"(.*)".*?/) {
+                    $time_ms = Time::Piece->strptime($1,'%Y-%m-%dT%T%z')->epoch * 1000;
+                }
+                elsif (m/\s+({.*disk_device.*}).*?/) {
+                    my $iosample_ref = decode_json($1);
+                    my %desc = ('source' => 'iostat');
+                    foreach my $field_name (grep(!/^disk_device$/, keys %$iosample_ref)) {
+                        my %sample = ('value'=> $iosample_ref->{$field_name}, 'end' => $time_ms);
+                        my %names = ('dev' => $iosample_ref->{disk_device});
+                        if ($field_name =~ /(.*)(\/s|util)$/) {
+                            $desc{'class'} = "throughput";
+                            my $oper = $1;
+                            if ($oper =~ /^(w|r|d|f)(.*)$/) {
+                                $names{'cmd'} = $1;
+                                $desc{'type'} = $2;
+                                s/^r$/read/, s/^d$/discard/, s/^w$/write/, s/^f$/flush/ for $desc{'cmd'};
+                                s/^$/operations-sec/, s/^rqm$/operations-merged-sec/, s/^kB$/kB-sec/, s/^qm$/request-merges-sec/ for $desc{'type'};
+                            } elsif ($field_name =~ /^util$/) {
+                                $desc{'type'} = "percent-utilization";
+                            }
+                        } else {
+                            $desc{'class'} = "count";
+                            if ($field_name =~ /^(w|r|d|f)(.+)$/) {
+                                $names{'cmd'} = $1;
+                                $desc{'type'} = $2;
+                                s/^r$/read/, s/^d$/discard/, s/^w$/write/, s/^f$/flush/ for $desc{'cmd'};
+                                s/^rqm$/percent-merged/, s/^_await$/avg-service-time-ms/, s/^areq-sz$/avg-req-size-kB/ for $desc{'type'};
+                            } else {
+                                if ($field_name =~ /^aqu-sz$/) {
+                                    $desc{'type'} = "avg-queue-length";
+                                }
+                            }
+                        }
+                        if (defined $desc{'type'} and defined $sample{'end'} and defined $sample{'value'}) {
+                            log_sample("iostat", \%desc, \%names, \%sample) unless ($field_name eq "disk_device");
+                        }
+                    }
+                }
+            }
+        close($fh);
+        finish_samples;
         }
-      close(TMP);
-      finish_samples;
-      }
+    }
 }
 printf "Waiting for %d post-processing jobs to complete\n", scalar @pids + @mpstat_pids;
 while (wait() > -1) {}
