@@ -533,7 +533,7 @@ for my $log_file (sort readdir($dh)) {
                             if ($oper =~ /^(w|r|d|f)(.*)$/) {
                                 $names{'cmd'} = $1;
                                 $desc{'type'} = $2;
-                                s/^r$/read/, s/^d$/discard/, s/^w$/write/, s/^f$/flush/ for $desc{'cmd'};
+                                s/^r$/read/, s/^d$/discard/, s/^w$/write/, s/^f$/flush/ for $names{'cmd'};
                                 s/^$/operations-sec/, s/^rqm$/operations-merged-sec/, s/^kB$/kB-sec/, s/^qm$/request-merges-sec/ for $desc{'type'};
                             } elsif ($field_name =~ /^util$/) {
                                 $desc{'type'} = "percent-utilization";
@@ -543,7 +543,7 @@ for my $log_file (sort readdir($dh)) {
                             if ($field_name =~ /^(w|r|d|f)(.+)$/) {
                                 $names{'cmd'} = $1;
                                 $desc{'type'} = $2;
-                                s/^r$/read/, s/^d$/discard/, s/^w$/write/, s/^f$/flush/ for $desc{'cmd'};
+                                s/^r$/read/, s/^d$/discard/, s/^w$/write/, s/^f$/flush/ for $names{'cmd'};
                                 s/^rqm$/percent-merged/, s/^_await$/avg-service-time-ms/, s/^areq-sz$/avg-req-size-kB/ for $desc{'type'};
                             } else {
                                 if ($field_name =~ /^aqu-sz$/) {
