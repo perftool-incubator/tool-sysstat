@@ -27,6 +27,10 @@
         ],
         "whitelist": [
             {
+                "endpoint": "remotehost",
+                "collector-types": [ "profiler" ]
+            },
+            {
                 "endpoint": "k8s",
                 "collector-types": [ "master", "worker" ]
             }
