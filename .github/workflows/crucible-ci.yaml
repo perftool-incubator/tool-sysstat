@@ -1,0 +1,64 @@
+name: crucible-ci
+
+on:
+  # run on pull request events for the master branch only
+  pull_request:
+    branches: [ master ]
+
+  # allow for manual invocation from the actions tab
+  workflow_dispatch:
+
+jobs:
+  crucible-ci-all-userenvs-fio-remotehost:
+    name: crucible-ci-all-userenvs-fio-remotehost
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout tool-sysstat
+      uses: actions/checkout@v2
+      with:
+        path: tool-sysstat
+
+    - name: Checkout crucible-ci
+      uses: actions/checkout@v2
+      with:
+        repository: perftool-incubator/crucible-ci
+        ref: main
+        path: crucible-ci
+
+    - name: Run crucible-ci->integration-tests
+      uses: ./crucible-ci/.github/actions/integration-tests
+      with:
+        artifact_tag: "fio-remotehost"
+        ci_target: "tool-sysstat"
+        ci_target_dir: ${{ github.workspace }}/tool-sysstat
+        scenarios: "fio"
+        userenvs: "all"
+        ci_endpoint: "remotehost"
+
+  crucible-ci-all-userenvs-fio-k8s:
+    name: crucible-ci-all-userenvs-fio-k8s
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout tool-sysstat
+      uses: actions/checkout@v2
+      with:
+        path: tool-sysstat
+
+    - name: Checkout crucible-ci
+      uses: actions/checkout@v2
+      with:
+        repository: perftool-incubator/crucible-ci
+        ref: main
+        path: crucible-ci
+
+    - name: Run crucible-ci->integration-tests
+      uses: ./crucible-ci/.github/actions/integration-tests
+      with:
+        artifact_tag: "fio-k8s"
+        ci_target: "tool-sysstat"
+        ci_target_dir: ${{ github.workspace }}/tool-sysstat
+        scenarios: "fio"
+        userenvs: "all"
+        ci_endpoint: "k8s"
