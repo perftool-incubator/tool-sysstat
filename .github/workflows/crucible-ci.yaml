@@ -30,7 +30,7 @@ jobs:
       uses: ./crucible-ci/.github/actions/integration-tests
       with:
         artifact_tag: "fio-remotehost"
-        ci_target: "tool-sysstat"
+        ci_target: "sysstat"
         ci_target_dir: ${{ github.workspace }}/tool-sysstat
         scenarios: "fio"
         userenvs: "all"
@@ -57,7 +57,7 @@ jobs:
       uses: ./crucible-ci/.github/actions/integration-tests
       with:
         artifact_tag: "fio-k8s"
-        ci_target: "tool-sysstat"
+        ci_target: "sysstat"
         ci_target_dir: ${{ github.workspace }}/tool-sysstat
         scenarios: "fio"
         userenvs: "all"
