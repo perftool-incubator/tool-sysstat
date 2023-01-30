@@ -1,0 +1,14 @@
+name: faux-crucible-ci
+
+on:
+  pull_request:
+    branches: [ master ]
+    paths:
+      - LICENSE
+      - '**.md'
+      - .github/workflows/faux-crucible-ci.yaml
+      - 'docs/**'
+
+jobs:
+  call-tool-crucible-ci:
+    uses: perftool-incubator/crucible-ci/.github/workflows/faux-tool-crucible-ci.yaml@main
