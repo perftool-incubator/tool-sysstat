@@ -1,0 +1,23 @@
+name: crucible-merged
+
+on:
+  pull_request_target:
+    types: [ closed ]
+    branches: [ master ]
+    paths-ignore:
+      - LICENSE
+      - '**.md'
+      - .github/workflows/faux-crucible-ci.yaml
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  call-tool-crucible-ci_if-merged:
+    if: github.event.pull_request.merged == true
+    uses: perftool-incubator/crucible-ci/.github/workflows/tool-crucible-ci.yaml@main
+    with:
+      ci_target: "sysstat"
+      ci_target_branch: "master"
+      github_workspace: "$GITHUB_WORKSPACE"
+    secrets:
+      production_registry_auth: ${{ secrets.CRUCIBLE_PRODUCTION_ENGINES_REGISTRY_AUTH }}
