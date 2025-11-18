@@ -4,13 +4,9 @@ on:
   pull_request_target:
     types: [ closed ]
     branches: [ master ]
-    paths-ignore:
-      - LICENSE
-      - '**.md'
-      - '.github/rulesets/**'
-      - .github/workflows/run-crucible-tracking.yaml
-      - .github/workflows/faux-crucible-ci.yaml
-      - 'docs/**'
+    paths:
+    - .github/workflows/crucible-merged.yaml
+    - workshop.json
   workflow_dispatch:
 
 jobs:
