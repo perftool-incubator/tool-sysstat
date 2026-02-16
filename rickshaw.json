@@ -21,6 +21,10 @@
         ],
         "blacklist": [
             {
+                "endpoint": "remotehosts",
+                "collector-types": [ "client", "server" ]
+            },
+            {
                 "endpoint": "k8s",
                 "collector-types": [ "client", "server" ]
             },
