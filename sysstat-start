@@ -79,8 +79,9 @@ for subtool in `echo $subtools | sed -e 's/,/ /g'`; do
             echo "iostat pid is $iostat_pid"
             ;;
         sar)
-            echo "Starting sar"
-            TZ=UTC S_TIME_FORMAT=ISO sar -n ALL -B -q ALL -W -H -m ALL -w $interval >sar-stdout.txt 2>sar-stderr.txt &
+            cmd=(sar -r -n ALL -B -q ALL -W -H -m ALL -w $interval)
+            echo "Starting sar: ${cmd[@]}"
+            TZ=UTC S_TIME_FORMAT=ISO "${cmd[@]}" >sar-stdout.txt 2>sar-stderr.txt &
             sar_pid=$!
             echo "$sar_pid" >>sysstat-pids.txt
             echo "sar pid is $sar_pid"
