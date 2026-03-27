@@ -3,18 +3,35 @@ name: crucible-ci
 on:
   pull_request:
     branches: [ master ]
-    paths-ignore:
-      - LICENSE
-      - '**.md'
-      - '.github/rulesets/**'
-      - .github/workflows/run-crucible-tracking.yaml
-      - .github/workflows/crucible-merged.yaml
-      - .github/workflows/faux-crucible-ci.yaml
-      - 'docs/**'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.ref }}/crucible-ci
+  cancel-in-progress: true
+
 jobs:
-  call-tool-crucible-ci:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      only-docs: ${{ steps.filter.outputs.only_changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: tj-actions/changed-files@v47
+        with:
+          files: |
+            LICENSE
+            *.md
+            **/*.md
+            .github/rulesets/**
+            .github/workflows/run-crucible-tracking.yaml
+            .github/workflows/crucible-merged.yaml
+            .github/workflows/crucible-ci.yaml
+            docs/**
+
+  call-real-tool-crucible-ci:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.only-docs != 'true' }}
     uses: perftool-incubator/crucible-ci/.github/workflows/tool-crucible-ci.yaml@main
     with:
       ci_target: "sysstat"
@@ -23,3 +40,20 @@ jobs:
     secrets:
       ci_registry_auth: ${{ secrets.CRUCIBLE_CI_ENGINES_REGISTRY_AUTH }}
       quay_oauth_token: ${{ secrets.CRUCIBLE_QUAYIO_OAUTH_TOKEN }}
+
+  call-faux-tool-crucible-ci:
+    needs: changes
+    if: ${{ github.event_name != 'workflow_dispatch' && needs.changes.outputs.only-docs == 'true' }}
+    uses: perftool-incubator/crucible-ci/.github/workflows/faux-tool-crucible-ci.yaml@main
+
+  crucible-ci-complete:
+    needs: [ call-real-tool-crucible-ci, call-faux-tool-crucible-ci ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Results
+        if: >-
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "crucible-ci complete"
