@@ -656,6 +656,105 @@ if (scalar @iostat_files == 1) {
     close($fh);
     finish_samples;
 }
+my @pidstat_files = grep(/^pidstat-stdout.txt(\.xz){0,1}$/, @files);
+if (scalar @pidstat_files > 1) {
+    printf "ERROR: there should never be more than one pidstat file\n%s\n", @pidstat_files;
+}
+if (scalar @pidstat_files == 0) {
+    printf "WARNING: there is no pidstat file\n";
+}
+if (scalar @pidstat_files == 1) {
+    my $log_file = $pidstat_files[0];
+    printf "Post-processing for pidstat started\n";
+
+    # Set to 0 to include all PIDs regardless of activity
+    my $skip_zero_pids = 1;
+
+    my $pidstat_data_regex = qr/^(\d+):(\d+):(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(.+?)\s*$/;
+
+    # Pass 1: find PIDs with any non-zero values
+    my %active_pids;
+    if ($skip_zero_pids) {
+        (my $rc1, my $fh1) = open_read_text_file($log_file);
+        if ($rc1 > 0 or ! defined $fh1) {
+            printf "sysstat-post-process: open_read_text_file() failed on %s for pass 1\n", $log_file;
+        } else {
+            while (<$fh1>) {
+                chomp;
+                if (/$pidstat_data_regex/) {
+                    my $pid = $5;
+                    my $usr = $6;
+                    my $system = $7;
+                    my $guest = $8;
+                    my $wait = $9;
+                    my $cpu = $10;
+                    if ($usr > 0 || $system > 0 || $guest > 0 || $wait > 0 || $cpu > 0) {
+                        $active_pids{$pid} = 1;
+                    }
+                }
+            }
+            close($fh1);
+            printf "pidstat pass 1: found %d active PIDs out of total\n", scalar keys %active_pids;
+        }
+    }
+
+    # Pass 2: process data and emit metrics
+    (my $rc, my $fh) = open_read_text_file($log_file);
+    if ($rc > 0 or ! defined $fh) {
+        printf "sysstat-post-process: open_read_text_file() failed on %s\n", $log_file;
+        exit 0;
+    }
+    my $ymd_timestamp_ms;
+    my $prev_hms_ms;
+    while (<$fh>) {
+        chomp;
+        if (/^Linux\s\S+\s\S+\s+(\d+-\d+-\d+)\s+\S+\s+\S+/) {
+            my $ymd = $1;
+            $ymd_timestamp_ms = `date +%s%N -d $ymd -u` / 1000000;
+        }
+        if (/$pidstat_data_regex/) {
+            my $hour = $1;
+            my $min = $2;
+            my $sec = $3;
+            my $pid = $5;
+            my $usr = $6;
+            my $system = $7;
+            my $guest = $8;
+            my $wait = $9;
+            my $cpu = $10;
+            my $command = $12;
+
+            if ($skip_zero_pids && ! exists $active_pids{$pid}) {
+                next;
+            }
+
+            my $hms_ms = get_hms_ms($hour, $min, $sec);
+            if (defined $prev_hms_ms && $hms_ms < $prev_hms_ms) {
+                $ymd_timestamp_ms = advance_ymd($ymd_timestamp_ms);
+            }
+            $prev_hms_ms = $hms_ms;
+            my $time_ms = $ymd_timestamp_ms + $hms_ms;
+
+            my %desc = ('source' => 'pidstat', 'class' => 'throughput');
+
+            my %fields = ('usr' => $usr, 'system' => $system, 'guest' => $guest, 'wait' => $wait);
+            for my $field_name (keys %fields) {
+                my %names = ('cmd' => $command, 'pid' => $pid, 'type' => $field_name);
+                if ($field_name eq 'wait') {
+                    $desc{'type'} = 'NonBusy-CPU';
+                } else {
+                    $desc{'type'} = 'Busy-CPU';
+                }
+                my %sample = ('end' => $time_ms, 'value' => $fields{$field_name});
+                log_sample("pidstat", \%desc, \%names, \%sample);
+            }
+        }
+    }
+    close($fh);
+    finish_samples;
+    printf "Post-processing for pidstat complete\n";
+}
+
 print "All sysstat post-processing is complete\n";
 while (wait() > -1) {}
 closedir $dh;
