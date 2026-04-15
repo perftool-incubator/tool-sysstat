@@ -27,13 +27,14 @@ jobs:
             .github/workflows/run-crucible-tracking.yaml
             .github/workflows/crucible-merged.yaml
             .github/workflows/crucible-ci.yaml
+            .github/workflows/fork-check.yaml
             docs/**
       - name: Display changes
         run: echo '${{ toJSON(steps.filter.outputs) }}' | jq .
 
   call-real-tool-crucible-ci:
     needs: changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.only-docs != 'true' }}
+    if: ${{ github.event.pull_request.head.repo.fork != true && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.only-docs != 'true') }}
     uses: perftool-incubator/crucible-ci/.github/workflows/tool-crucible-ci.yaml@main
     with:
       ci_target: "sysstat"
@@ -45,7 +46,7 @@ jobs:
 
   call-faux-tool-crucible-ci:
     needs: changes
-    if: ${{ github.event_name != 'workflow_dispatch' && needs.changes.outputs.only-docs == 'true' }}
+    if: ${{ github.event.pull_request.head.repo.fork != true && github.event_name != 'workflow_dispatch' && needs.changes.outputs.only-docs == 'true' }}
     uses: perftool-incubator/crucible-ci/.github/workflows/faux-tool-crucible-ci.yaml@main
 
   crucible-ci-complete:
