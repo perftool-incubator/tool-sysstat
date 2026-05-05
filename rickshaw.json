@@ -6,7 +6,7 @@
     },
     "tool": "sysstat",
     "controller": {
-        "post-script": "%tool-dir%sysstat-post-process"
+        "post-script": "%tool-dir%sysstat-post-process.py"
     },
     "collector": {
         "files-from-controller": [
