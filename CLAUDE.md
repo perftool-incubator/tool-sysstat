@@ -5,14 +5,14 @@ Collects system performance metrics using Linux sysstat utilities (mpstat, sar, 
 
 ## Languages
 - Bash: collection scripts (`sysstat-start`, `sysstat-stop`)
-- Perl: post-processor (`sysstat-post-process`)
+- Python: post-processor (`sysstat-post-process.py`)
 
 ## Key Files
 | File | Purpose |
 |------|---------|
 | `sysstat-start` | Launches configured subtools with `--subtools` and `--interval` parameters |
 | `sysstat-stop` | Kills running collectors, compresses output with xz |
-| `sysstat-post-process` | Parses raw sysstat output into crucible metrics (uses `toolbox::metrics`, `toolbox::json` from `$TOOLBOX_HOME/perl`) |
+| `sysstat-post-process.py` | Parses raw sysstat output into crucible metrics using CDMMetrics |
 | `rickshaw.json` | Rickshaw integration: endpoint allow/block lists, file deployment, post-process script |
 | `workshop.json` | Engine image build: compiles sysstat v12.5.1 from source |
 
@@ -23,4 +23,4 @@ Collects system performance metrics using Linux sysstat utilities (mpstat, sar, 
 ## Conventions
 - Primary branch is `master`
 - Runs as a profiler tool on master/worker/profiler roles, blocked on client/server
-- Standard Bash/Perl modelines and 4-space indentation
+- Standard Bash modelines and 4-space indentation
