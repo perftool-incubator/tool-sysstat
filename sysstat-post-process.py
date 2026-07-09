@@ -506,7 +506,7 @@ def process_pidstat(log_file):
             for field_name, val in fields.items():
                 names = {"cmd": command, "pid": pid, "type": field_name}
                 desc["type"] = "NonBusy-CPU" if field_name == "wait" else "Busy-CPU"
-                sample = {"end": time_ms, "value": val}
+                sample = {"end": time_ms, "value": val / 100}
                 metrics.log_sample("pidstat", desc, names, sample)
 
     fh.close()

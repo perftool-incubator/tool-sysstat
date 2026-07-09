@@ -9,12 +9,13 @@ if [ -e sysstat-pids.txt ]; then
     while read pid; do
         kill -s SIGINT $pid
     done <sysstat-pids.txt
-    find . -name "*stdout.txt" -o -name "*stderr.txt" -o -name "*.json" | while read line; do
-	echo "Compressing: $line"
-	xz -3 -T 0 $line
+    wait
+    find . -name "*stdout.txt" -o -name "*stderr.txt" -o -name "*.json" | while read -r line; do
+        echo "Compressing: $line"
+        xz -3 -T 0 "$line"
     done
 else
-    echo "Could not find sysstst-pids.txt"
+    echo "Could not find sysstat-pids.txt"
     echo "PWD: `/bin/pwd`"
     echo "LS:"
     /bin/ls -l
