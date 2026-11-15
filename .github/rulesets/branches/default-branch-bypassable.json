@@ -1,0 +1,56 @@
+{
+  "id": 27312371,
+  "name": "default-branch-bypassable",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "perftool-incubator/tool-sysstat",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "dismissal_restriction": {
+          "enabled": false,
+          "allowed_actors": []
+        },
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": [
+          "merge"
+        ]
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec4OuhwGzgGgwPM",
+  "created_at": "2026-11-15T06:18:32.542-06:00",
+  "updated_at": "2026-11-15T06:18:32.574-06:00",
+  "bypass_actors": [
+    {
+      "actor_id": 20646239,
+      "actor_type": "Team",
+      "bypass_mode": "pull_request"
+    }
+  ],
+  "current_user_can_bypass": "pull_requests_only",
+  "_links": {
+    "self": {
+      "href": "https://api.github.com/repos/perftool-incubator/tool-sysstat/rulesets/27312371"
+    },
+    "html": {
+      "href": "https://github.com/perftool-incubator/tool-sysstat/rules/27312371"
+    }
+  }
+}
